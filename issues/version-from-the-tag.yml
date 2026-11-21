@@ -1,0 +1,12 @@
+id: "version-from-the-tag"
+kind: "issue"
+title: The version is hard-coded at 0.1.0
+text: |-
+  Fault: mix.exs hard-codes version 0.1.0, and so does every place router.ex reports a version. So a release built at tag v3.0.0 still reports 0.1.0.
+
+  Wanted, as the smallest change that does it: at build time, mix.exs takes the version from `git describe --tags`, dropping the leading 'v' (v3.0.0 becomes 3.0.0). It falls back to a fixed default version when git or tags are not available. router.ex reports that same project version instead of a literal.
+
+  Check: one test that shows how the version is derived. The tag v3.0.0 gives 3.0.0, no git or no tag gives the fallback, and the version router.ex reports equals the application's version.
+criteria:
+  - "A build at tag v3.0.0 reports version 3.0.0 in the application and wherever router.ex reports a version"
+  - "When git or tags are unavailable, the build still succeeds with a fallback version"
