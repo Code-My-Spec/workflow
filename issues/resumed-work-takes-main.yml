@@ -1,0 +1,21 @@
+id: "resumed-work-takes-main"
+kind: "issue"
+title: A work resumed by id runs on a stale branch
+text: |-
+  Fault: a story handed in again by id resumed its kept branch. That branch had never merged main, so the work ran the old justfile `run` recipe and stopped at specify with the same note three times.
+
+  Wanted, as the smallest change that does it:
+  1. When a work is resumed by id, the loop merges the main branch into the work's kept branch before the work's first step runs.
+  2. If that merge conflicts, the work stops, and its stop note says the merge of main conflicted and names the conflicting files. No step runs.
+  3. When a work's tree is dirty only because of untracked leftovers that main ignores, the stop note reports the actual `git status` text instead of guessing at the cause.
+
+  Check: one test per rule, in temporary git repositories:
+  - a kept branch behind main, resumed by id, has main's latest commit (for example a changed justfile) before the first step;
+  - a kept branch that conflicts with main, resumed by id, stops with a note saying the merge conflicted;
+  - a tree dirty only with untracked, ignored-in-main files gives a stop note containing the `git status` output.
+
+  Do not tag or publish anything.
+criteria:
+  - "A work resumed by id has the main branch merged into its branch before its first step runs"
+  - "When merging main into a resumed work's branch conflicts, the work stops with a note saying so and runs no step"
+  - "When a work's tree is dirty only with untracked leftovers ignored in main, its stop note contains the `git status` text"
