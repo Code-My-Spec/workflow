@@ -82,6 +82,12 @@ defmodule Workflow.Run do
         Checkout.stop(repo, id, "copy-setup", "stopped: #{reason}")
         %{name: "copy-setup", actor: :system, note: reason, stop: true}
 
+      # A kept branch handed in again that does not merge main runs no step.
+      {:conflict, reason} ->
+        Logger.warning("[Workflow #{id}] merge-main stopped: #{reason}")
+        Checkout.stop(repo, id, "merge-main", "stopped: #{reason}")
+        %{name: "merge-main", actor: :system, note: reason, stop: true}
+
       root ->
         work |> Map.put("root", root) |> Map.put("own", true)
     end
@@ -413,8 +419,8 @@ defmodule Workflow.Run do
   # in flight that nobody runs.
   defp copied(work, run) do
     case owned(work) do
-      %{stop: true, note: note} = step ->
-        land(work, "stopped at copy-setup: stopped: #{note}")
+      %{stop: true, name: name, note: note} = step ->
+        land(work, "stopped at #{name}: stopped: #{note}")
         {step, "stopped: #{note}"}
 
       owned ->
@@ -473,7 +479,7 @@ defmodule Workflow.Run do
       # checkout nobody will commit it and the work would sit: it is stopped.
       # Seen live: a service restarted under an agent mid-edit dropped the work.
       %{actor: :system} = step ->
-        reason = "stopped: uncommitted changes in #{work["root"]} and no agent at work on them"
+        reason = dirty(work["root"])
         lock = {{__MODULE__, work["root"]}, self()}
 
         case :global.trans(lock, fn -> stop(work, step, reason) end, [node()], 0) do
@@ -542,12 +548,19 @@ defmodule Workflow.Run do
         end
 
       %{actor: :system} = step ->
-        stop(work, step, "stopped: uncommitted changes in #{root} and no agent at work on them")
+        stop(work, step, dirty(root))
 
       left ->
         land(work, landed(left))
         Logger.info("[Workflow #{id}] left on #{(is_map(left) && left.name) || "done"}")
     end
+  end
+
+  # What git says is uncommitted, not a guess at why: seen live, a tree dirty only
+  # with untracked leftovers that main ignores was stopped as "uncommitted changes".
+  defp dirty(root) do
+    "stopped: uncommitted changes in #{root} and no agent at work on them. " <>
+      "`git status --short` says:\n\n#{Checkout.status(root)}"
   end
 
   # Nothing the system does runs on a dirty tree, so work left uncommitted would
