@@ -1,0 +1,20 @@
+id: "hand-in-at-the-cap-says-so"
+kind: "issue"
+title: A hand-in at the cap times out silently
+text: |-
+  Fault: on the app's loop, a manager made a hand-in while the cap's worth of works were already running. It timed out after 120 s, twice, and left no file in the works directory. So the manager could not tell whether the work was queued or dead.
+
+  Find the cause first. Read the hand-in path and the code that enforces the cap, and say in the decision note what made the hand-in block.
+
+  Wanted, as the smallest change that fixes that cause: a hand-in made at the cap answers at once and never times out silently. It does one of two things:
+  - it is refused, with a message that says 'at the cap of N' (N is the configured cap), and it leaves no work behind; or
+  - it is accepted and waits, with its file written in the works directory, and it starts when a slot frees.
+  The manager's hand_in tool result says which of the two happened. A hand-in below the cap behaves as it does today.
+
+  Check: one test that fills the cap with running works, then hands in one more. It shows that the answer comes back promptly (well under the 120 s timeout), that the tool result names the outcome (refused 'at the cap of N', or accepted and waiting), and, if it was accepted, that the work's file exists in the works directory.
+
+  Do not tag or publish anything.
+criteria:
+  - "A hand-in made while the cap's worth of works are running answers promptly instead of timing out"
+  - "That answer is either a refusal saying 'at the cap of N' with no work left behind, or an acceptance with the work's file in the works directory, waiting for a slot"
+  - "The manager's hand_in tool result says whether the work was refused at the cap or accepted and waiting"
