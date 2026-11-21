@@ -1,37 +1,49 @@
 # Packaging the loop for Homebrew
 
 The loop is released as a plain `mix release` tarball (bundled ERTS, no Elixir
-or Erlang needed), the same shape as the `codemyspec` formula's.
+or Erlang needed), installed by the formula `packaging/codemyspec-loop.rb` as
+the `workflow` command.
 
-## Build (Apple silicon Mac, with Elixir installed)
+## Build (Apple silicon Mac, with Elixir and just installed)
 
-    cd workflow
-    elixir -S mix deps.get
-    MIX_ENV=prod elixir -S mix release --overwrite
-    tar -C _build/prod/rel/workflow -czf codemyspec-loop-darwin-arm64.tar.gz .
-    shasum -a 256 codemyspec-loop-darwin-arm64.tar.gz
+1. Check out the commit tagged `v3.0.0`, so the release reports version 3.0.0.
+2. In the repository's root, run:
 
-Upload the tarball, then put its URL, sha256 and version into
-`codemyspec-loop.rb` (the marked placeholders) and add the file to the tap.
-It is built for the architecture and macOS of the machine that builds it.
+       just package
 
-## Before using it
+   It builds the prod release, makes
+   `_build/codemyspec-loop-darwin-arm64.tar.gz` from it, and prints the
+   tarball's path (`tarball: ...`) and its sha256 (`sha256: ...`).
+3. Upload `codemyspec-loop-darwin-arm64.tar.gz` where Homebrew can download it.
+4. In `packaging/codemyspec-loop.rb`, set the two placeholder lines and
+   nothing else:
+   - `url`: the uploaded tarball's url.
+   - `sha256`: the sha256 that `just package` printed.
+5. Hand `packaging/codemyspec-loop.rb` off to the tap that holds the formula.
 
-- The `claude` CLI installed and signed in (`claude` once, interactively).
-- The loop signed in to its server: `codemyspec-loop sign-in` (or `mix workflow.sign_in`),
-  once `config.json` names the server. It keeps its sign-in in `~/.codemyspec`.
-- `~/.workflow/config.json`, for example:
+The tarball is built for the architecture and macOS of the machine that builds it.
+
+## Install and run
+
+    brew install codemyspec-loop      # from the tap that holds the formula
+    workflow sign-in                  # once ~/.workflow/config.json names the server
+
+Install Claude Code (the `claude` command) yourself, since brew does not provide
+it, and run `claude` once to sign in:
+
+    curl -fsSL https://claude.ai/install.sh | bash
+
+The formula brings `git` and `just`. `~/.workflow/config.json`, for example:
 
       {
         "manager": {"agent": {"provider": "claude-code"}, "repo": "/path/to/your/repo", "cap": 3},
         "server": {"url": "wss://YOUR-SERVER/socket/websocket", "project_id": "YOUR-PROJECT-ID"}
       }
 
-## Install and run
+Run it as a service:
 
-    brew install codemyspec-loop      # from the tap that holds the formula
     brew services start codemyspec-loop
     brew services stop codemyspec-loop
 
 It listens on 127.0.0.1:4010 (`WORKFLOW_PORT` overrides). Logs: `$(brew --prefix)/var/log/codemyspec-loop.log`.
-To run it by hand without the service: `WORKFLOW_PORT=4099 codemyspec-loop start`.
+To run it by hand without the service: `WORKFLOW_PORT=4099 workflow start`.

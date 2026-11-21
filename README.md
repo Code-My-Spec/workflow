@@ -1,5 +1,21 @@
 # workflow
 
+## Install
+
+On an Apple silicon Mac:
+
+    brew install codemyspec-loop      # from the tap that holds the formula
+    workflow sign-in                  # once ~/.workflow/config.json names the server
+
+Then install Claude Code (the `claude` command), which brew does not provide,
+and run `claude` once to sign in:
+
+    curl -fsSL https://claude.ai/install.sh | bash
+
+How the package is built: `packaging/README.md`.
+
+## Running from source
+
 The loop service. Start it with:
 
     mix run --no-halt

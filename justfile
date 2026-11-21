@@ -17,3 +17,12 @@ run dir:
 certify dir:
     mix workflow.sarif "{{dir}}/compiler.sarif" -- mix compile --warnings-as-errors
     mix workflow.sarif "{{dir}}/exunit.sarif" -- mix test
+
+# Build the prod release and its Homebrew tarball (on an Apple silicon Mac), then
+# print the tarball's path and sha256 for packaging/codemyspec-loop.rb.
+package:
+    MIX_ENV=prod mix deps.get
+    MIX_ENV=prod mix release --overwrite
+    tar -C _build/prod/rel/workflow -czf _build/codemyspec-loop-darwin-arm64.tar.gz .
+    @echo "tarball: {{justfile_directory()}}/_build/codemyspec-loop-darwin-arm64.tar.gz"
+    @shasum -a 256 _build/codemyspec-loop-darwin-arm64.tar.gz | cut -d ' ' -f 1 | sed 's/^/sha256: /'
