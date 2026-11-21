@@ -1,0 +1,33 @@
+id: "init-writes-the-settings"
+kind: "issue"
+title: Nothing writes a new user's ~/.workflow/config.json
+text: |-
+  Fault: a new user has no ~/.workflow/config.json, and nothing writes one. So after `brew install` the loop has no settings to run with.
+
+  Wanted, as the smallest change that does it:
+  1. A release command `workflow init`, handled in rel/env.sh.eex the same way as `sign-in`, plus a mix task that does the same thing.
+  2. Flags:
+     - `--repo PATH` defaults to the current directory and must be a git checkout.
+     - `--plugin DIR` is optional and must hold .claude-plugin/plugin.json.
+     - `--server URL` and `--project ID` are optional, but they come together: give both or neither.
+     Every validation error names the flag at fault, and nothing is written when one occurs.
+  3. It writes config.json beside the works directory. The file holds:
+     - a manager on provider claude-code for that repo;
+     - the coder, reviewer and qa agents on provider claude-code with no model named, so the user's own Claude default applies;
+     - a chat recipient;
+     - the plugin, and the server and project, only when they were given.
+  4. It refuses to overwrite an existing config.json. The refusal says where the file is, and the file is left untouched.
+  5. On success it prints what it wrote and the next steps: `workflow sign-in` (only when a server was given), then `brew services start codemyspec-loop`.
+  6. README.md's install section becomes, in order: brew install, `workflow init`, `workflow sign-in`, start the service (`brew services start codemyspec-loop`).
+
+  Check: one test per rule, each in a temporary works directory and never the real ~/.workflow. Together they cover: a valid init writes the expected config, with plugin and server present only when given; an existing file is refused with its path and stays unchanged; each bad flag (a repo that is not a git checkout, a plugin dir with no plugin.json, a server without a project or a project without a server) gives an error naming that flag and writes nothing; the printed next steps include sign-in only when a server was given; and README's install section has those four steps in order.
+
+  Note: on main (commit 648528f) the environment scrub removes MIX_ENV only, not all MIX_*, so a person's MIX_HOME survives. Keep it that way.
+
+  Do not tag or publish anything.
+criteria:
+  - "`workflow init` (and its mix task) writes config.json beside the works directory with a manager on provider claude-code for the repo (default: the current directory), coder, reviewer and qa agents on claude-code with no model named, a chat recipient, and the plugin and server/project only when given"
+  - "When config.json already exists, init refuses, names the file's path, and leaves it unchanged"
+  - "A --repo that is not a git checkout, a --plugin without .claude-plugin/plugin.json, or --server without --project (or the reverse) is refused with an error naming that flag, and nothing is written"
+  - "After writing, init prints what it wrote and the next steps: `workflow sign-in` only when a server was given, then `brew services start codemyspec-loop`"
+  - "README.md's install section lists, in order: brew install, `workflow init`, `workflow sign-in`, start the service"
