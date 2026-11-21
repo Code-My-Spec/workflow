@@ -1309,6 +1309,32 @@ defmodule Workflow.RunTest do
     refute File.exists?(file)
   end
 
+  test "a-turn-with-no-change-keeps-its-words: criteria 1 and 2 - a coder turn that changes nothing has its final text in the log and in the stop note",
+       %{tmp_dir: dir} do
+    works_dir(dir)
+    work = checkout(dir, 0, 0) |> Map.put("agent", %{"provider" => "claude-code"})
+    words = "I made no change: the test already passes."
+
+    # The agent itself is faked at Alloy, so its final text goes the whole way.
+    Application.put_env(:workflow, :alloy_run, fn _prompt, _opts ->
+      {:ok, %{status: :completed, turns: 1, text: words, messages: []}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :alloy_run) end)
+
+    capture_log(fn ->
+      assert {%{name: "fix"}, "started"} = Workflow.Run.start(work)
+      settled()
+    end)
+
+    said = Workflow.Run.log(work) |> File.read!()
+    assert said =~ "fix turn by the coder ended: #{words}"
+
+    assert %{"step" => "fix", "reason" => reason} = stopped(dir)
+    assert reason =~ "third time"
+    assert reason =~ words
+  end
+
   test "provisioning-is-a-work: criterion 6 - a step that fails three times with nothing changed is not sent a third time; the work waits and says why",
        %{tmp_dir: dir} do
     file = Path.join(works_dir(dir), "i1.json")
