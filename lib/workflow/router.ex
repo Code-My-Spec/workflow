@@ -250,7 +250,7 @@ defmodule Workflow.Router do
     answered = %{
       protocolVersion: version,
       capabilities: %{tools: %{}},
-      serverInfo: %{name: "workflow", version: "0.1.0"}
+      serverInfo: %{name: "workflow", version: to_string(Application.spec(:workflow, :vsn))}
     }
 
     # The chat's brief, where config.json names one (`Workflow.ConfigFile`).
