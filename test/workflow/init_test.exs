@@ -78,6 +78,18 @@ defmodule Workflow.InitTest do
         do: Application.delete_env(:workflow, key)
   end
 
+  test "init-writes-the-settings: criterion 1 the mix task and the release's `workflow init` run the same init",
+       %{repo: repo, config: config} do
+    said = ExUnit.CaptureIO.capture_io(fn -> Mix.Tasks.Workflow.Init.run(["--repo", repo]) end)
+
+    assert said =~ config
+    assert %{"manager" => %{"repo" => ^repo}} = config |> File.read!() |> Jason.decode!()
+
+    env = File.read!(Path.join(File.cwd!(), "rel/env.sh.eex"))
+    assert env =~ ~s(if [ "$1" = "init" ]; then)
+    assert env =~ ~s|eval "Workflow.Init.main()"|
+  end
+
   test "init-writes-the-settings: criterion 2 an existing config.json is refused with its path and left unchanged",
        %{repo: repo, config: config} do
     File.mkdir_p!(Path.dirname(config))
