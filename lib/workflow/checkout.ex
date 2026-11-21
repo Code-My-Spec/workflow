@@ -24,12 +24,41 @@ defmodule Workflow.Checkout do
   given, else at `repo`'s HEAD. Answers its root, or `{:error, reason}` with the
   recipe's output where copy-setup is missing or fails; that copy is taken away
   again, so a later hand-in sets one up afresh rather than reuse a half-made one.
+
+  One reused, not cut at `at`, merges the main copy's branch first; where that
+  merge fails it is aborted, and `{:conflict, reason}` names the conflicting files.
   """
   @spec own(String.t(), String.t(), String.t(), String.t() | nil, String.t() | nil) ::
-          String.t() | {:error, String.t()}
+          String.t() | {:error, String.t()} | {:conflict, String.t()}
   def own(repo, kind, id, project, at \\ nil) do
     root = root(repo, id)
-    if File.dir?(root), do: root, else: cut(repo, kind, id, project, at)
+
+    cond do
+      not File.dir?(root) -> cut(repo, kind, id, project, at)
+      at -> root
+      true -> take_main(repo, root)
+    end
+  end
+
+  # Seen live: a story handed in again by id resumed a kept branch that had never
+  # merged main, ran the old justfile's `run` recipe, and stopped the same way thrice.
+  defp take_main(repo, root) do
+    with %{branch: main} <- landing(repo),
+         {:error, why} <- git(root, ["merge", "--no-edit", main]) do
+      {_listed, files} = git(root, ~w(diff --name-only --diff-filter=U))
+      git(root, ~w(merge --abort))
+
+      named =
+        if files == "",
+          do: why,
+          else: "conflicting files: " <> Enum.join(String.split(files, "\n"), ", ")
+
+      {:conflict,
+       "the merge of `#{main}` into the work's branch conflicted (#{named}). " <>
+         "Merge it, resolve, and commit, then hand the work in again."}
+    else
+      _merged_or_no_main -> root
+    end
   end
 
   defp cut(repo, kind, id, project, at) do
@@ -414,6 +443,13 @@ defmodule Workflow.Checkout do
           {:halt, error}
       end
     end)
+  end
+
+  @doc "The output of `git status --short` in the checkout, as git gives it."
+  @spec status(String.t()) :: String.t()
+  def status(root) do
+    {out, _status} = cmd("git", ~w(status --short), [cd: root, stderr_to_stdout: true] ++ @no_lock)
+    out
   end
 
   @doc "Whether `path` in the checkout has changes not yet committed."
