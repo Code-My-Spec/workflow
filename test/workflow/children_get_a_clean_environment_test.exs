@@ -1,7 +1,7 @@
 defmodule Workflow.ChildrenGetACleanEnvironmentTest do
   use ExUnit.Case, async: false
 
-  @release ~w(RELEASE_ROOT RELEASE_NODE ROOTDIR BINDIR EMU PROGNAME MIX_HOME ERL_LIBS)
+  @release ~w(RELEASE_ROOT RELEASE_NODE ROOTDIR BINDIR EMU PROGNAME MIX_ENV ERL_LIBS)
 
   test "a command run in a project gets none of the release's variables, and the rest" do
     before = Map.new(@release ++ ["ORDINARY_VAR"], &{&1, System.get_env(&1)})

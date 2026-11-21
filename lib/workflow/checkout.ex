@@ -913,7 +913,7 @@ defmodule Workflow.Checkout do
   @doc """
   The one place the loop runs a command (`just`, git) in a project: `run`
   (`System.cmd/3`, or what a test puts in its place), with the release's own
-  variables (RELEASE_*, MIX_*, ERL_*, ROOTDIR, BINDIR, EMU, PROGNAME) taken out
+  variables (RELEASE_*, ERL_*, MIX_ENV, ROOTDIR, BINDIR, EMU, PROGNAME) taken out
   of the child's environment, so the project's commands use its own runtime.
   Every other variable passes through, and any `:env` the caller gives still applies.
   """
@@ -931,7 +931,8 @@ defmodule Workflow.Checkout do
   end
 
   defp release_var?(name),
+    # Not all of MIX_*: a person's MIX_HOME says where their own mix keeps hex.
     do:
-      name in ~w(ROOTDIR BINDIR EMU PROGNAME) or
-        String.starts_with?(name, ["RELEASE_", "MIX_", "ERL_"])
+      name in ~w(ROOTDIR BINDIR EMU PROGNAME MIX_ENV) or
+        String.starts_with?(name, ["RELEASE_", "ERL_"])
 end
