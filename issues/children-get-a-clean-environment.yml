@@ -1,0 +1,13 @@
+id: "children-get-a-clean-environment"
+kind: "issue"
+title: Commands run in a project inherit the release's own environment
+text: |-
+  Fault: commands the loop runs in a project, such as `just ...` and git, inherit the release's own environment variables. These are RELEASE_*, ROOTDIR, BINDIR, EMU, PROGNAME, MIX_* and ERL_*. When the loop runs from a built release, these leak into the project's commands and can make them pick up the release's runtime instead of the project's own.
+
+  Wanted, as the smallest change that does it: there is one place where the loop runs commands in a project. Every `just` and git call goes through it. That place removes any variable named RELEASE_* or starting MIX_ or ERL_, plus ROOTDIR, BINDIR, EMU and PROGNAME, from the child's environment. Every other variable, such as PATH and HOME, passes through unchanged.
+
+  Check: one test. It sets those variables in the parent and runs a command through that single place that prints its environment. It shows that none of the listed variables reach the child and that an ordinary variable still does.
+criteria:
+  - "A command the loop runs in a project receives none of RELEASE_*, ROOTDIR, BINDIR, EMU, PROGNAME, MIX_* or ERL_* from the loop's environment"
+  - "Other environment variables, such as PATH and HOME, still reach the command unchanged"
+  - "All `just` and git commands the loop runs in a project go through that single place"
