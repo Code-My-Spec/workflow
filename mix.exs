@@ -4,12 +4,9 @@ defmodule Workflow.MixProject do
   @fallback_version "0.1.0"
 
   def project do
-    version = version_from(git_describe())
-    drop_stale_app(version)
-
     [
       app: :workflow,
-      version: version,
+      version: version_from(git_describe()),
       elixir: "~> 1.20",
       deps: deps(),
       releases: [workflow: [include_executables_for: [:unix]]]
@@ -30,24 +27,6 @@ defmodule Workflow.MixProject do
   end
 
   def version_from(_), do: @fallback_version
-
-  # Mix rewrites a built workflow.app only when mix.exs or the config changes,
-  # not when a new commit moves the version, so one built at another version
-  # is removed here and Mix writes it again with this one.
-  defp drop_stale_app(version) do
-    build =
-      System.get_env("MIX_BUILD_PATH") || Path.join([__DIR__, "_build", to_string(Mix.env())])
-
-    app = Path.join([build, "lib", "workflow", "ebin", "workflow.app"])
-
-    case :file.consult(app) do
-      {:ok, [{:application, :workflow, props}]} ->
-        if props[:vsn] != to_charlist(version), do: File.rm(app)
-
-      _none ->
-        :ok
-    end
-  end
 
   defp git_describe do
     System.cmd("git", ["describe", "--tags"], cd: __DIR__, stderr_to_stdout: true)
