@@ -1,17 +1,18 @@
 # Homebrew formula for the CodeMySpec loop (macOS, Apple silicon).
 #
-# Installs the plain `mix release` tarball (bundled ERTS, no Elixir/Erlang
-# needed). Named `codemyspec-loop` so it cannot collide with `codemyspec`.
+# Installs the plain `mix release` tarball that `just package` builds (bundled
+# ERTS, no Elixir/Erlang needed) and exposes it as the `workflow` command.
+# After a build, edit only the url and sha256 lines (see packaging/README.md).
 class CodemyspecLoop < Formula
   desc "CodeMySpec loop: runs agents on works, dials the CodeMySpec server"
   homepage "https://codemyspec.com"
-  # PLACEHOLDER: set to the released version.
-  version "0.0.0"
-  # PLACEHOLDER: the uploaded tarball's URL and sha256. Nothing is uploaded yet.
-  url "https://example.invalid/REPLACE_ME/codemyspec-loop-darwin-arm64.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  version "3.0.0"
+  url "https://REPLACE_ME/codemyspec-loop-darwin-arm64.tar.gz"
+  sha256 "REPLACE_ME"
 
   depends_on arch: :arm64
+  depends_on "git"
+  depends_on "just"
   # The release's crypto NIF links Homebrew's OpenSSL.
   depends_on "openssl@3"
 
@@ -19,17 +20,17 @@ class CodemyspecLoop < Formula
     # The tarball extracts to bin/, lib/, releases/, erts-*.
     libexec.install Dir["*"]
     # A wrapper, not a symlink, so the launcher resolves its root from libexec.
-    (bin/"codemyspec-loop").write <<~SH
+    (bin/"workflow").write <<~SH
       #!/bin/bash
       exec "#{libexec}/bin/workflow" "$@"
     SH
-    chmod 0755, bin/"codemyspec-loop"
+    chmod 0755, bin/"workflow"
   end
 
   service do
-    run [opt_bin/"codemyspec-loop", "start"]
+    run [opt_bin/"workflow", "start"]
     keep_alive true
-    # launchd gives a bare PATH; the loop shells out to the `claude` CLI.
+    # launchd gives a bare PATH; the loop shells out to `claude`, `git` and `just`.
     environment_variables PATH: "#{HOMEBREW_PREFIX}/bin:#{Dir.home}/.local/bin:/usr/bin:/bin"
     log_path var/"log/codemyspec-loop.log"
     error_log_path var/"log/codemyspec-loop.log"
@@ -37,12 +38,18 @@ class CodemyspecLoop < Formula
 
   def caveats
     <<~EOS
-      Needs the `claude` CLI installed and signed in, and ~/.workflow/config.json
-      (see the README). The loop listens on 127.0.0.1:4010; set WORKFLOW_PORT to change it.
+      Sign the loop in to its server, once ~/.workflow/config.json names it:
+        workflow sign-in
+
+      Install Claude Code (the `claude` command) yourself; brew does not provide it:
+        curl -fsSL https://claude.ai/install.sh | bash
+      then run `claude` once to sign in.
+
+      The loop listens on 127.0.0.1:4010; set WORKFLOW_PORT to change it.
     EOS
   end
 
   test do
-    assert_match "workflow", shell_output("#{bin}/codemyspec-loop version")
+    assert_match "workflow", shell_output("#{bin}/workflow version")
   end
 end
