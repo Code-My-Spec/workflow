@@ -1,0 +1,17 @@
+id: "components-page-goes"
+kind: "issue"
+title: The components page should go
+text: |-
+  Where: the CodeMySpec app itself, at the repository root (project "."), not the `workflow` directory. The root `justfile` has the `run` and `certify` recipes. Certify only compiles for now, so also run the tests that touch what you change.
+
+  Fault: the owner's note says "I think this liveview can go". It means the page at `/app/projects/:project_id/components`.
+
+  Fix: remove its route, its LiveView and its templates. Remove the links and navigation entries that point to it. Remove the tests and spex that exist only for it. Remove nothing else it shared.
+
+  How: before cutting anything, grep for every caller. In the commit, say what was removed and what was kept because something else uses it. If the page turns out to be load-bearing (something other than a link depends on it), stop and say so in your decision. Do not cut it. Make the smallest change.
+
+  Check: compile, and run the tests that touch what you changed. They must pass. Add or adjust a test showing the route is gone.
+criteria:
+  - "A request for /app/projects/:project_id/components no longer reaches a page: the route is gone and it answers not found."
+  - "No link or navigation entry in the app points to /app/projects/:project_id/components."
+  - "Everything the components page shared with other parts of the app is still there, and the pages that use it still work."

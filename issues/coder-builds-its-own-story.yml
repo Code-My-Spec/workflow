@@ -1,0 +1,16 @@
+id: "coder-builds-its-own-story"
+kind: "issue"
+title: Agents build or judge against a neighbouring story
+text: |-
+  Where: the workflow project (`workflow` directory): the QA, coder and reviewer briefs, and what the loop puts in the message each agent of a work is shown. Tests go beside the existing ones.
+
+  Fault: on metric_flow, a coder working on one story built a tool that belonged to a neighbouring story. On the auction app, a reviewer failed public-auction-page for lacking a role field, which belongs to a later story. Agents are doing or judging work from stories that are not theirs.
+
+  Fix: find what in the briefs or in what each agent is shown lets the neighbouring stories in, and fix that. If the cause is that agents can read the other story files in the checkout (stories/*.yml), say so in the brief: your work is this story's criteria and nothing from another story file. Say in your decision what the cause was.
+
+  How: make the smallest change.
+
+  Check: add tests beside the existing ones for each criterion.
+criteria:
+  - "The message each agent of a work is given (QA, coder and reviewer) holds that work's own story and criteria, and no other story's text, rules or criteria."
+  - "The briefs of QA, the coder and the reviewer say that their work is this story's criteria and nothing from any other story file in the checkout."

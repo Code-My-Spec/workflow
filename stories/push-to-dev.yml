@@ -1,0 +1,14 @@
+title: Landed work goes to dev by fast-forward
+workflow: Get work off the machine
+story: >
+  As an owner with a dev server, I want every work that lands to reach dev in seconds, so that I see it running without waiting minutes for a deploy.
+rules:
+  - rule: After a work is merged into the main copy, the loop pushes the main copy's branch to the remote and branch named in config.json, which default to origin and dev.
+    scenarios:
+      - happy: A work lands in a main copy with a remote; the remote's branch is at the merge commit.
+      - happy: A main copy with no remote lands the work and pushes nothing.
+  - rule: A refused push never holds landing.
+    scenarios:
+      - fails: The push is refused; the work stays landed, the manager is told what failed in the remote's own words, and the next push carries everything.
+  - rule: The loop only pushes. What happens after a push is the box's business.
+  - rule: The loop keeps no record of what is deployed. The branch on the remote is the record.

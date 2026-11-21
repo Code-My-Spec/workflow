@@ -1,0 +1,16 @@
+id: "journey-demo-can-be-seen"
+kind: "issue"
+title: A journey waits on a demo nobody can see
+text: |-
+  Where: the workflow project (`workflow` directory): the journey template's step that waits on the owner's decision on the demo, what the loop keeps for a work, and the waiting note that look shows. Tests go beside the existing ones.
+
+  Fault: on the auction's three-sides journey, the work waited on 'the owner's decision on the demo', but there was no demo. Nothing was made, kept or pointed to. The owner asked: 'Where do I see the demo?'
+
+  Fix: build the smallest thing that lets the owner see the journey before deciding, and make the waiting note say where it is. Say in your decision what you chose and why it is the smallest. Don't tie the loop to Phoenix more than a recipe name.
+
+  How: make the smallest change.
+
+  Check: add tests beside the existing ones for each criterion. Tests must not start a real app or browser.
+criteria:
+  - "When a journey reaches the step where it waits on the owner's decision on the demo, there is something the owner can see the journey in: made, kept or pointed to by the loop."
+  - "The waiting note for that journey, as look shows it, says where the owner can see the demo."

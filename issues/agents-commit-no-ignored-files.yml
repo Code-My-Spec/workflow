@@ -1,0 +1,17 @@
+id: "agents-commit-no-ignored-files"
+kind: "issue"
+title: An agent commits a path git ignores and the work stops
+text: |-
+  Where: the workflow project (`workflow` directory): the brief shared by every agent that writes and commits, and the loop's check for uncommitted changes in a work's checkout. Tests go beside the existing ones.
+
+  Fault: QA committed a test's scratch file under an ignored tmp folder, adding it with force. The next test run rewrote the file, and the work stopped on uncommitted changes. The cause is an agent's commit that adds a path git ignores.
+
+  Fix: it must hold for every agent, not just one work's text. (1) The brief every writer gets says never to add an ignored path. (2) When the loop finds the tree dirty only in tracked paths that .gitignore names, it tells the agent exactly that: which paths, and to take them out of the branch with git rm --cached. It sends this in place of the general uncommitted-changes note.
+
+  How: make the smallest change.
+
+  Check: add tests beside the existing ones for each criterion.
+criteria:
+  - "The brief every writing agent gets (QA, coder and any other agent that commits) says never to add a path git ignores."
+  - "When a work's tree is dirty only in tracked paths that .gitignore names, the note the agent gets names those paths and tells it to take them out of the branch with git rm --cached, instead of the general uncommitted-changes note."
+  - "When a work's tree is dirty in any path that .gitignore does not name, the agent gets the general uncommitted-changes note, as today."

@@ -1,0 +1,13 @@
+title: The chat learns its inbox has messages
+workflow: talk-to-the-chat
+story: >
+  As a customer who cannot be pushed to in my chat, I want my chat to learn that messages are waiting whenever it touches my project, so that it asks me the team's questions the next time I say anything.
+rules:
+  - rule: Every answer a tool gives on the chat's connection ends by saying how many unread messages are in that chat's inbox.
+    scenarios:
+      - happy: With two unread messages for the chat, the answer to a say on POST /mcp ends with a line saying 2 messages are in your inbox.
+      - happy: With no unread messages, the answer has no such line.
+      - happy: The answer to inbox itself has no such line, since it has just read them.
+  - rule: A question is just a message. There is no separate kind for questions.
+    scenarios:
+      - happy: A message to the chat whose text begins "Ask the user:" is kept and read like any other message, with no extra field or tool.

@@ -1,0 +1,22 @@
+id: "requirements-context-goes"
+kind: "issue"
+title: Remove the requirement graph's context and schemas
+text: |-
+  Where: the CodeMySpec app itself, at the repository root (project "."), not the `workflow` directory. The root `justfile` has the `run` and `certify` recipes. Certify only compiles for now, so you must run the tests of what stays yourself.
+
+  Why: the owner is cutting the old harness down, because `workflow/` replaces it. This is part 2 of 2 for the requirement graph. Part 1 (requirements-callers-go) already removed its LiveViews, channels, MCP tools, routes and nav links. This part removes `lib/code_my_spec/requirements/` and `requirements.ex`, with the schemas for its tables. Any remaining call into them goes too, or loses the call. Remove the tests, spex, fixtures and factories that exist only for them.
+
+  What stays and must keep working: accounts and sign-in, projects, the devops console, the operations console, and everything under `workflow/`. If any of these uses a piece on the list, leave that piece and say so. Do not cut it, and do not rewrite the console. Agent tasks, architecture, components and files are removed in later issues. If they call into requirements, they lose just that call here. Do not remove them in this issue.
+
+  Rules:
+  - Deletion only. Add no replacement, no shim, and no stub module to keep a caller compiling.
+  - Tests, spex, fixtures and factories that exist only for deleted code go with it.
+  - Write no migration and drop no table. The data stays where it is.
+  - Write no test that a deleted thing is absent. The proof of a deletion is that the app compiles clean and the tests of what stays pass.
+
+  Check: run `mix compile --warnings-as-errors` in dev and in test (MIX_ENV=test). Both must be clean. Run the tests of accounts, projects and the two consoles. They must pass.
+
+  The commit says how many lines went, and names anything left behind and why.
+criteria:
+  - "With `lib/code_my_spec/requirements/`, `requirements.ex` and their tables' schemas removed, `mix compile --warnings-as-errors` is clean in both dev and test."
+  - "Accounts and sign-in, projects, the devops console, the operations console and everything under `workflow/` still work: their tests pass."

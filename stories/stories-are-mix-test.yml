@@ -1,0 +1,11 @@
+title: A story's tests are plain mix test
+workflow: Build and land work
+story: >
+  As an owner, I want one test command and no special macros, so that the tests for a story are ordinary tests any Elixir developer and any agent can read.
+rules:
+  - rule: QA writes a story's tests as ordinary ExUnit tests through the app's outside doors (pages and requests), run by mix test.
+  - rule: A generated app has one suite and one command; its run and certify recipes call mix test once.
+  - rule: Tests for stories may not call the app's inner modules; the boundary check refuses it at compile time.
+questions:
+  - Does the boundary library check test files, or do story tests need to live in their own compiled path?
+  - Do existing apps keep sexy_spex until they move?

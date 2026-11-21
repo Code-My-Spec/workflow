@@ -1,0 +1,14 @@
+title: Never find a stalled work
+workflow: build-and-land-work
+story: >
+  As a customer I want every piece of work I have handed in to be moving, waiting on me, finished, or stopped with a reason, so that nothing quietly stops.
+rules:
+  - rule: A handed-in work is always running, waiting on a person, done, or stopped with the reason it stopped.
+    scenarios:
+      - happy: The customer asks about a work and is told which of the four it is.
+      - fails: An agent gives up or crashes, and the work is recorded as stopped with the reason and the project manager is told.
+questions:
+  - Should an interrupted work resume or stop, and what if the working tree has uncommitted changes?
+  - How many times is an agent told again before the loop stops the work?
+  - What is said to a person when a work stops, and who must act?
+  - Should a restart of the loop pick work back up where it was?

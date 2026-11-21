@@ -1,0 +1,18 @@
+title: Ask my chat what is going on
+workflow: talk-to-the-chat
+story: >
+  As a customer I want to ask my chat what is running, waiting on me, done or stopped, so I can keep track of my project without a screen.
+rules:
+  - rule: Tracking is done by asking the chat agent. The product needs no UI for it.
+    scenarios:
+      - happy: The customer asks what is running and gets an answer from the project manager through the chat, with no questions put to them first.
+  - rule: Every question for the customer goes to the chat agent.
+    scenarios:
+      - happy: A coder cannot go on without a decision, and the question reaches the customer's chat.
+  - rule: What the customer needs to look at themselves, such as a demo, is something they can fetch as plain data by the work's name.
+    scenarios:
+      - happy: The customer asks for a work by its name and gets plain JSON describing it.
+questions:
+  - A chat cannot be pushed to. What brings the customer back when work is blocked on them (an email, a notification)?
+  - What is the "a2ui" the owner mentioned for keeping track, and when is it wanted?
+  - What does the owner need to keep track of things that the chat does not give?

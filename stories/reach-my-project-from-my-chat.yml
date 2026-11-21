@@ -1,0 +1,30 @@
+title: Reach my project from my own chat
+workflow: talk-to-the-chat
+story: >
+  As a customer I want to talk to my project from the ordinary Claude or ChatGPT chat I already use, so I do not have to learn or open anything else.
+rules:
+  - rule: The customer talks to the chat agent and to nothing else.
+    scenarios:
+      - happy: A customer opens their usual chat, says what they want built, and never addresses any other agent.
+  - rule: The chat reaches the project manager on the customer's machine through the connector we already have, with the message tools we already have.
+    scenarios:
+      - happy: The customer's chat sends a message and it arrives at the project manager on their machine.
+  - rule: The outside chat can read files in a working copy and send and read messages, and can never write files or run commands.
+    scenarios:
+      - happy: The chat reads a story file in the project and tells the customer what it says.
+      - fails: The chat is asked to edit a file or run a command in the project and is refused.
+  - rule: When the project manager is a Claude Code or Codex session, a message to it is acknowledged at once and its reply is read from the chat's inbox.
+    scenarios:
+      - happy: The chat sends a message and is told it was delivered, then reads the manager's reply from its inbox on the next call.
+  - rule: The chat's instructions are plain markdown skills, each named for its job (product interview, not "chat skill"), that point at our written playbooks.
+    scenarios:
+      - happy: A customer who installs the plugin in their chat finds a product interview skill that points at the three amigos playbook.
+  - rule: The chat does not read the project through GitHub. Its playbooks ship inside its skills, and what it needs to know about the project it asks the project manager.
+    scenarios:
+      - happy: The chat needs the Three Amigos method and opens the file that came with its skill.
+      - happy: The chat needs to know what stories exist and asks the project manager.
+  - rule: When the customer's machine is off, the chat just talks to the customer. It knows there is no dev box behind it.
+    scenarios:
+      - fails: The chat cannot reach the project manager. It says the machine looks to be off, that nothing is being built until it is back on, and carries on with the interview.
+questions:
+  - Is the cloud connector the only way an outside chat reaches the box, or is a tunnel straight to the box also offered?

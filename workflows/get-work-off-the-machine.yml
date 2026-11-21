@@ -1,0 +1,4 @@
+name: Get work off the machine
+stories:
+  - build-cop
+  - provisioning-is-a-work

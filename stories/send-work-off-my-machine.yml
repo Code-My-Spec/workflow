@@ -1,0 +1,26 @@
+title: Decide when work leaves my machine
+workflow: build-and-land-work
+story: >
+  As the person running the project manager I want to decide when finished work leaves my machine for dev, so that I never push something I did not choose.
+rules:
+  - rule: Work leaves the machine when the project manager decides, not on a fixed schedule.
+    scenarios:
+      - happy: Several fixed works accumulate and the project manager sends them together.
+  - rule: Devops is server only and has its own lifecycle, different from the coder, QA and reviewer.
+    scenarios:
+      - happy: A release runs under its own agent and not under a coder.
+  - rule: Promote runs certification and then pushes the work to the dev box.
+    scenarios:
+      - happy: The project manager promotes, certification passes, and the work is pushed to dev.
+      - fails: Certification fails and nothing is pushed.
+  - rule: Dev runs the full build and tests on what it receives, and a build cop fixes what is broken on dev.
+    scenarios:
+      - happy: A push turns dev red and the build cop fixes it there.
+  - rule: Work goes on to UAT only once everything is green on dev.
+    scenarios:
+      - happy: Dev is green and the work moves to UAT.
+      - fails: Dev is red and nothing moves to UAT.
+questions:
+  - Is devops a loop, with a release template that starts when the main copy moves?
+  - Is the devops agent durable? The owner thinks probably not, but it gives the manager more to do and he is opposed to that.
+  - Is evidence synced to a bucket when work leaves?

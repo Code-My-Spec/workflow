@@ -1,0 +1,31 @@
+title: Be interviewed before anything is built
+workflow: talk-to-the-chat
+story: >
+  As a customer I want the chat to interview me about what I want before anything is built, so that what gets built is what I meant.
+rules:
+  - rule: The chat agent does the product interview. There is no separate product agent.
+    scenarios:
+      - happy: A customer says they want owners told when a walk is done, and the chat starts asking questions instead of passing the sentence on.
+  - rule: The interview is a grilling. The chat walks the decisions as a tree, asks every question it can ask now in one round with its recommended answer, waits, and carries on until no branch rests on something nobody said.
+    scenarios:
+      - happy: The chat asks four numbered questions together, each with a recommended answer, waits for the customer, and asks the next round from the answers.
+  - rule: The chat looks facts up itself and puts only decisions to the customer, and it never invents an answer for them.
+    scenarios:
+      - happy: The chat reads the project to learn that owners and dogs already exist and does not ask the customer about it.
+      - fails: The chat does not know whether owners may reply to the text, so it asks and does not assume.
+  - rule: Every story is taken down to its rules, and each rule has a scenario in the customer's own words, a happy one always and a failing one only where the rule can really be refused or go wrong.
+    scenarios:
+      - happy: Each rule the customer settled has at least one example.
+      - fails: A rule with no real way to fail gets no made-up failing scenario.
+  - rule: What the customer has not settled is kept as an open question, not written up as a rule.
+    scenarios:
+      - happy: The customer is unsure whether owners can reply, so the story records that as a question.
+  - rule: Personas are part of the interview and are kept in a file in the repository.
+    scenarios:
+      - happy: The chat settles who the product is for, and the project manager records the personas in a file.
+questions:
+  - Should a story with open questions be passed on only when the customer says to go ahead anyway?
+  - Does the chat read the whole story back and get agreement before it passes it on?
+  - Does the interview begin with the bare list of stories and only later go story by story to rules, or is each story taken to rules as it comes up?
+  - How does a plain claude.ai or ChatGPT session behave with these instructions? Only a Claude Code chat has been tried.
+  - Would product management run on the same unit-of-work loop as coding, with the journey and its stories passed in?

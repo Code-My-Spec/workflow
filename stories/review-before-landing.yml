@@ -1,0 +1,21 @@
+title: Have every change reviewed before it lands
+workflow: build-and-land-work
+story: >
+  As a customer I want another agent to review every change before it lands, so that a coder's own word is never the only check.
+rules:
+  - rule: Review is done by a reviewer agent. It is not the project manager.
+    scenarios:
+      - happy: A coder finishes, and a reviewer agent is started to judge the change.
+  - rule: A failed review goes back to the same coder, who picks up their own conversation, and the same agents last until the work is complete.
+    scenarios:
+      - happy: The reviewer rejects a change, the coder is resumed with the reviewer's note in front of them, and fixes it.
+  - rule: The loop verifies what it can by running it and shows the rest to the reviewer as facts, rather than forbidding things.
+    scenarios:
+      - happy: The reviewer is shown that the test boundary changed, which tests changed after QA last wrote them, and the test runs.
+  - rule: Changes to the spec boundary are flagged to the reviewer.
+    scenarios:
+      - happy: A coder edits the guarded boundary and the reviewer is told.
+questions:
+  - Is the mechanical static review only a report for the reviewer, or can it ever refuse a change?
+  - Does a coder that special-cases a test get caught? An agent with a shell can also forge the loop's records.
+  - Should earned givens (a given that an earlier then has proven) come later? The owner said to record it as an idea and add no complexity for now.

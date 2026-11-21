@@ -1,0 +1,16 @@
+title: Approve a journey before it lands
+workflow: build-and-land-work
+story: >
+  As a customer I want to see a journey demonstrated and decide whether it is accepted, so that nothing I have not seen is called finished.
+rules:
+  - rule: A journey is not finished until its owner approves it.
+    scenarios:
+      - happy: The journey's checks pass, the loop waits on the owner, and it lands only after they approve.
+  - rule: If the owner rejects it with a note, the coder resumes from the note.
+    scenarios:
+      - fails: The owner rejects the demo with a note and the work goes back to the coder.
+  - rule: Nobody approves for the owner unless the owner has said so.
+    scenarios:
+      - happy: A journey waits while the owner is away.
+questions:
+  - Can an owner delegate approval, and how long may a journey wait?

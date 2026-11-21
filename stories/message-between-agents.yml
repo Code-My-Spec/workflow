@@ -1,0 +1,17 @@
+title: Reach any agent however it runs
+workflow: run-the-project-manager
+story: >
+  As the person running the project manager I want one simple way to message any agent, so that it arrives however that agent is running.
+rules:
+  - rule: Messaging stays simple and keeps every delivery option we have, including the socket, the inbox and the rest.
+    scenarios:
+      - happy: A message to a Claude Code manager is dropped into its socket.
+      - happy: A message to the chat agent is held in its inbox until it asks.
+      - fails: A message to an agent that cannot be reached is not lost.
+  - rule: The inbox is for the chat agent, not for every agent.
+    scenarios:
+      - happy: The chat agent reads messages from its inbox on its next call.
+questions:
+  - What else should messages be delivered by, besides the socket, queue and inbox?
+  - Which messages does the project manager receive in the simplest design?
+  - What is carried over from the old message tool, and what is left behind?

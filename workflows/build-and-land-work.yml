@@ -1,0 +1,10 @@
+name: build-and-land-work
+stories:
+  - get-a-story-built
+  - get-a-bug-fixed
+  - review-before-landing
+  - approve-a-journey
+  - work-never-stalls
+  - choose-the-agents
+  - land-work-on-my-machine
+  - send-work-off-my-machine

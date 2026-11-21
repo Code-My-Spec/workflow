@@ -1,0 +1,26 @@
+title: Have what we decided written down in my repository
+workflow: talk-to-the-chat
+story: >
+  As a customer I want what we settled written down as plain files in my repository, so it can be read, compared and reviewed along with the code.
+rules:
+  - rule: Stories live as files in the repository. The files are the source.
+    scenarios:
+      - happy: After an interview the customer finds one file per story in their repository.
+  - rule: A story file holds workflow, story, rules with their scenarios, and open questions, nothing else.
+    scenarios:
+      - happy: A story file reads as a title, its workflow, the "As a ... I want ... so that ..." sentence, the rules each with happy and failing scenarios, and any questions.
+  - rule: A story file holds only what a person decided. It has no status, verified, enforced, ready or promoted field, and no ids or numbers on rules or scenarios.
+    scenarios:
+      - happy: A story that has been built and landed reads exactly as it did the day it was agreed.
+  - rule: A workflow is a file that lists its stories in order, and every story names its workflow.
+    scenarios:
+      - happy: A story named for the team-invite job appears in that workflow's file after the stories it depends on.
+  - rule: The project manager is the only writer. It records a story or workflow on the customer's behalf without starting any work, and a later hand-in uses the story it recorded.
+    scenarios:
+      - happy: An interview produces ten stories and a workflow, and the project manager records them all without anything being built.
+  - rule: The loop's criteria are the scenarios of a story, in order, each given as its rule followed by the scenario.
+    scenarios:
+      - happy: A story with three scenarios is worked as three criteria, one at a time.
+questions:
+  - How does a customer change a story that has already been built, and what happens to work in flight?
+  - How does the customer see the stories without a screen? The owner accepts the screens will be rough for now.

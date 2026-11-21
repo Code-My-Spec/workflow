@@ -1,0 +1,207 @@
+defmodule Workflow.AgentsTest do
+  # Not async: the Alloy run is swapped for the whole application.
+  use ExUnit.Case
+
+  @moduletag :tmp_dir
+
+  alias Workflow.Agents
+
+  test "ship-knowledge: criterion 2 a work's own read list is named in its first message, else nothing is said of reading" do
+    step = %{name: "work", actor: :coder, note: "fix the bug"}
+    work = %{"text" => "do it"}
+
+    refute Agents.message(step, work, []) =~ "read"
+
+    with_read = Map.put(work, "read", ["drills.md", "conventions.md"])
+    message = Agents.message(step, with_read, [])
+
+    assert message =~ "drills.md"
+    assert message =~ "conventions.md"
+    assert message =~ "before"
+  end
+
+  test "static-review: a reviewer's prompt carries the section, a coder's does not" do
+    Application.put_env(:workflow, :cmd, fn
+      "git", ["diff", "--stat", "main...HEAD"], _opts -> {" 1 file changed, 2 insertions(+)\n", 0}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :cmd) end)
+
+    work = %{"root" => "/root"}
+    snapshot = %{main: "main"}
+
+    reviewer = %{name: "review", actor: :reviewer, note: "Review it.", agent: %{decides: true}}
+    coder = %{name: "work", actor: :coder, note: "Fix it.", agent: %{}}
+
+    assert Agents.message(reviewer, work, [], snapshot) =~ "1 file changed, 2 insertions(+)"
+    refute Agents.message(coder, work, [], snapshot) =~ "1 file changed, 2 insertions(+)"
+  end
+
+  test "browser-for-pages: criterion 1 every agent of a work runs its shell commands with AGENT_BROWSER_SESSION set to the work's id",
+       %{tmp_dir: dir} do
+    test = self()
+    # A real, empty repo: the agent's step reads what the owner said from its git dir.
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: dir)
+
+    # Stands in for Alloy.run, as :agents_run and :manager_run do elsewhere.
+    Application.put_env(:workflow, :alloy_run, fn _message, opts ->
+      send(test, {:alloy_opts, opts})
+      {:ok, %{status: :completed, turns: 1, messages: []}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :alloy_run) end)
+
+    step = %{
+      name: "work",
+      actor: :coder,
+      note: "Fix it.",
+      agent: %{tools: [:bash], brief: "Fix it."}
+    }
+
+    work = %{
+      "id" => "dog-list",
+      "root" => dir,
+      "agent" => %{"provider" => "anthropic", "key" => "k"}
+    }
+
+    Agents.run(step, work)
+
+    assert_receive {:alloy_opts, opts}, 1_000
+    assert opts[:context][:bash_env]["AGENT_BROWSER_SESSION"] == "dog-list"
+  end
+
+  test "browser-for-pages: criterion 2 agents of two works see two different AGENT_BROWSER_SESSION values",
+       %{tmp_dir: dir} do
+    test = self()
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: dir)
+
+    Application.put_env(:workflow, :alloy_run, fn _message, opts ->
+      send(test, {:alloy_opts, opts})
+      {:ok, %{status: :completed, turns: 1, messages: []}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :alloy_run) end)
+
+    step = %{
+      name: "work",
+      actor: :coder,
+      note: "Fix it.",
+      agent: %{tools: [:bash], brief: "Fix it."}
+    }
+
+    agent = %{"provider" => "anthropic", "key" => "k"}
+
+    for id <- ["dog-list", "cat-list"],
+        do: Agents.run(step, %{"id" => id, "root" => dir, "agent" => agent})
+
+    assert_receive {:alloy_opts, first}, 1_000
+    assert_receive {:alloy_opts, second}, 1_000
+
+    sessions = for opts <- [first, second], do: opts[:context][:bash_env]["AGENT_BROWSER_SESSION"]
+    assert Enum.sort(sessions) == ["cat-list", "dog-list"]
+  end
+
+  test "agents-commit-no-ignored-files: every agent that writes is told never to add an ignored path; one that only reads is not",
+       %{tmp_dir: dir} do
+    test = self()
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: dir)
+
+    Application.put_env(:workflow, :alloy_run, fn _message, opts ->
+      send(test, {:alloy_opts, opts})
+      {:ok, %{status: :completed, turns: 1, messages: []}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :alloy_run) end)
+
+    work = %{"id" => "w", "root" => dir, "agent" => %{"provider" => "anthropic", "key" => "k"}}
+
+    for agent <- [
+          Workflow.Issue.steps() |> hd() |> Map.fetch!(:agent),
+          Workflow.Parts.qa("criterion", "story")
+        ] do
+      Agents.run(%{name: "fix", actor: :coder, note: "Fix it.", agent: agent}, work)
+      assert_receive {:alloy_opts, opts}, 1_000
+      assert opts[:system_prompt] =~ "Never add a path git ignores"
+    end
+
+    reader = %{tools: [:read, :bash], brief: "Review it."}
+    Agents.run(%{name: "review", actor: :reviewer, note: "Review it.", agent: reader}, work)
+    assert_receive {:alloy_opts, opts}, 1_000
+    refute opts[:system_prompt] =~ "ignores"
+  end
+
+  test "browser-for-pages: criterion 3 the QA and reviewer briefs name agent-browser and say when to use it" do
+    for brief <- [
+          Workflow.Parts.qa("criterion", "story").brief,
+          Workflow.Parts.reviewer("story", "criteria").brief
+        ] do
+      assert brief =~ "agent-browser"
+      assert brief =~ "page"
+
+      for command <- ["open", "snapshot -i", "fill", "click", "eval"],
+          do: assert(brief =~ command)
+    end
+  end
+
+  test "coder-builds-its-own-story: the QA, coder and reviewer briefs say the work is this story's criteria and nothing from another story file" do
+    for brief <- [
+          Workflow.Parts.qa("criterion", "story").brief,
+          Workflow.Parts.coder("story").brief,
+          Workflow.Parts.reviewer("story", "criteria").brief
+        ] do
+      assert brief =~ "Your work is this story's criteria"
+      assert brief =~ "nothing from another story file"
+      assert brief =~ "`stories/*.yml`"
+    end
+  end
+
+  test "coder-builds-its-own-story: an agent's first message names the work's own criteria, and only then" do
+    step = %{name: "work", actor: :coder, note: "Make it pass.", agent: %{}}
+
+    work = %{
+      "id" => "public-auction-page",
+      "text" => "A public page",
+      "criteria" => ["lists lots", "shows bids"]
+    }
+
+    first = Agents.message(step, work, [])
+
+    assert first =~
+             "This work's own criteria, and no other story's:\n1. lists lots\n2. shows bids"
+
+    refute Agents.message(step, work, [%{role: :user, content: "before"}]) =~ "lists lots"
+
+    # A story handed in with rules is shown one criterion per scenario.
+    ruled = %{"text" => "t", "rules" => [%{"rule" => "Bids", "scenarios" => ["one wins"]}]}
+    assert Agents.message(step, ruled, []) =~ "1. Bids one wins"
+
+    # An issue has no criteria; nothing is said of them.
+    refute Agents.message(step, %{"text" => "fix it"}, []) =~ "own criteria"
+  end
+
+  test "the QA and reviewer briefs say how to get the app running for the browser" do
+    example =
+      "PORT=4123 mix phx.server & pid=$!; for i in $(seq 1 60); do curl -s -o /dev/null " <>
+        "localhost:4123/ && break; sleep 1; done; agent-browser open http://localhost:4123/dogs; " <>
+        "agent-browser eval '...'; agent-browser close; kill $pid; wait $pid"
+
+    for brief <- [
+          Workflow.Parts.qa("criterion", "story").brief,
+          Workflow.Parts.reviewer("story", "criteria").brief
+        ] do
+      # Nothing is running; the agent starts the app in the same command as its browser steps.
+      assert brief =~ "Nothing is running for you"
+      assert brief =~ "start the app yourself in the same command as your browser steps"
+      # In the background, on a port of its own; waits for it; kills it before the end.
+      assert brief =~ "in the background with `&`"
+      assert brief =~ "on a port of its own"
+      assert brief =~ "wait until it answers"
+      assert brief =~ "kill it before the command ends"
+      # The shell refuses `>` to a file: no redirection.
+      assert brief =~ "Your shell refuses `>` to a file, so use no redirection"
+      # The one example, offered as one kind of app among others.
+      assert brief =~ example
+      assert brief =~ "For a Phoenix app, for example"
+    end
+  end
+end

@@ -1,0 +1,24 @@
+id: "system-steps-outlive-their-caller"
+kind: "issue"
+title: A handed-in work dies silently with its caller
+text: |-
+  Where: the workflow project (`workflow` directory): Workflow.Run (start/1, step, advance, fly, watch/2), the checkout's lock, the manager's hand_in and look tools, and POST /work/run. Tests go beside the existing ones. This work is handed in again after the loop itself went down at review; its earlier commits are kept.
+
+  Fault: on metric_flow, twice, a handed-in work logged `certify` (or `run`) and then nothing for 30 minutes. There was no `just` process, no agent and no error. The checkout was clean, and there was no file in the works folder, so a restart did not resume it either.
+
+  Cause: `Workflow.Run.start/1` calls `step(work)` in the caller's own process, and `step` runs the system steps there (`advance` shells `just run`, `just certify`, the merge). The caller is the manager's hand_in tool call or the HTTP request. When that caller is killed or times out, the port closes and `just` dies with it, and nothing is logged. Because `fly(work)` is only called once an agent's lock is held, the work was never kept as in flight. This is also why a slow hand-in timed out for the manager.
+
+  Fix: a hand-in starts the work in the background and answers at once, and the work goes on without its caller. The system steps of a handed-in work run in the watched process (`watch/2` already stops a work whose process goes down, with the reason), under the checkout's lock. The work is kept as in flight before its first system step, so a restart resumes it.
+
+  The owner settled the answer's shape: a hand-in answers the path of the work's log, not what became of the step. The log is a plain text file named `log` in the evidence folder for the tree hash, `<git common dir>/workflow/analysis/<tree>/`, beside the SARIF files and meta.json. Add no new place and no store. Each event is appended as one line to the log of the tree it happened at: each step starting, each check's result with its exit and time, each agent turn ending with its note, waiting, stopped with the reason, landed. A hand-in answers the path for the tree the work is at when handed in. When an agent commits and the tree moves, the next lines go in the new tree's folder, and the last line in the old log names the new tree so a reader can follow. The manager's hand_in and POST /work/run both answer the path. `look` answers the path for the tree the work is at now, and says whether a process is at work on it now (the checkout's lock is held) or nobody is.
+
+  How: make the smallest change. Never commit scratch files from tests (workflow/tmp is ignored; do not force-add anything under it).
+
+  Check: add tests beside the existing ones for each criterion. One test starts a work whose first step is a system step from a process that is then killed, and shows the step still completes and its result is kept. Another shows a system step that raises leaves the work stopped with the reason. Others show the path in the hand_in, POST /work/run and look answers, the log's lines, and the move to a new tree's log after a commit.
+criteria:
+  - "A work whose first step is a system step, started from a process that is then killed, still completes that step, and its result is kept."
+  - "A system step that raises leaves the work stopped with the reason, not silent."
+  - "A work is kept as in flight before its first system step, so after a restart it is resumed."
+  - "A hand-in (the manager's hand_in and POST /work/run) starts the work in the background and answers at once with the path of the work's log: a file named `log` in `<git common dir>/workflow/analysis/<tree>/` for the tree the work is at when handed in."
+  - "Everything that happens to the work is appended to the log of the tree it happened at, one line each: a step starting, a check's result with its exit and time, an agent turn ending with its note, waiting, stopped with the reason, and landed. When a commit moves the tree, the next lines go in the new tree's log, and the old log's last line names the new tree."
+  - "look on a work gives the log path for the tree the work is at now, and says whether a process is at work on it now (the checkout's lock is held) or nobody is."

@@ -1,0 +1,26 @@
+title: Have the old machinery removed
+workflow: shrink-the-product
+story: >
+  As the owner of the product I want the old loops, offers, durable agents and screens removed once the new loop does their job, so that the product is small enough to understand.
+rules:
+  - rule: The aim is to remove code, not to add it. Simple, basic and only what is necessary.
+    scenarios:
+      - happy: A removal lands and the line count of the app drops.
+  - rule: The screens are sacrificial. If the agents do the job, the product needs no UI, only enough to keep track.
+    scenarios:
+      - happy: A page that only showed old offers is removed and nothing is asked of its absence.
+  - rule: The product loop goes. The chat agent takes its place as the product agent.
+    scenarios:
+      - happy: A customer's interview takes place in the chat, not in a loop of the app.
+  - rule: The old requirement graph, the offers and claims, and the durable per-role agents are replaced and removed once the new loop is running every kind of work.
+    scenarios:
+      - happy: Teams take work through the new loop and the old claim machinery is no longer called.
+  - rule: Old code is deleted as soon as something replaces it. An old version can be pulled back from GitHub if it is needed.
+    scenarios:
+      - happy: The new loop takes over a job and the code that did it before is removed in the same piece of work.
+questions:
+  - Does everything move in one release, or project by project?
+  - What happens to a customer's own Claude Code session that follows the old tools?
+  - Are the plugin skills and the offer pages deleted with it?
+  - Do working copies go, so that one is started per task and torn down after?
+  - Which of the old prompts survive?

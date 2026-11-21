@@ -1,0 +1,12 @@
+title: A provision work names its target
+story: >
+  As an owner with a dev machine and uat and prod boxes, I want a provision work to name its target, so that one graph of steps serves uat and prod and a different one sets up the local machine for development.
+rules:
+  - rule: "A provision work names a target (a short word: dev, uat, prod). Its steps are read from provision/<target>.steps in the project, and each step runs as `just provision <step> <dir>` with PROVISION_TARGET=<target> in its environment."
+    scenarios:
+      - happy: A provision work with target uat runs the steps listed in provision/uat.steps, in order, each as `just provision <step> <dir>` with PROVISION_TARGET=uat in its environment.
+      - happy: A provision work with no target reads provision/steps, as today.
+      - fails: A provision work whose target has no steps file stops and says which file is missing.
+  - rule: The manager's hand_in takes the target, and provisions/<id>.yml records it.
+    scenarios:
+      - happy: The manager hands in a provision work with target prod; provisions/<id>.yml in the main copy holds target prod.

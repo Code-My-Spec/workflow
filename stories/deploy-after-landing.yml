@@ -1,0 +1,15 @@
+title: Landed work is deployed by itself
+story: >
+  As an owner, I want every landing deployed to my chosen target automatically, so that what lands is running without me starting anything.
+rules:
+  - rule: "When config.json has \"deploy\": \"<target>\", then after any story or issue lands in the main copy the loop hands in a provision work for that target by itself, with an id made from the target and the landed tree."
+    scenarios:
+      - happy: "With \"deploy\": \"uat\" in config.json, a story lands and a provision work for uat starts, its id made from uat and the landed tree."
+      - happy: With no deploy key in config.json, a landing starts nothing, as today.
+      - happy: A provision work that lands its own fixed scripts starts no other provision work.
+  - rule: Only one such provision runs at a time for a project. Landings that arrive while one runs give one more run after it, at the newest tree, not one per landing.
+    scenarios:
+      - happy: Three landings arrive while a deploy provision runs; when it ends, exactly one more runs, at the newest landed tree.
+  - rule: A deploy provision that fails and waits is told to the manager as for any waiting work.
+    scenarios:
+      - fails: A deploy provision fails three times with nothing changed; it waits and the manager is told.

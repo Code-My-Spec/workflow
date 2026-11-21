@@ -1,0 +1,916 @@
+defmodule Workflow.Checkout do
+  @moduledoc """
+  Everything the loop reads from, or does to, a checkout: its snapshot from git,
+  its checks, and the merge that promotes it. The main copy is the first
+  worktree git lists (the repository's primary checkout, even when the repo a
+  work names is a linked worktree of it), and its branch is whatever it has
+  checked out: work lands there. A work
+  that names only a repository gets a worktree checkout cut beside it, taken
+  away and its branch deleted once the work is done.
+
+  What was found at each tree is kept in the repository's own git directory
+  (`workflow/<id>.json`), so the loop needs no store.
+  """
+
+  require Logger
+
+  alias Workflow.Sarif
+
+  @doc """
+  Makes a worktree checkout for `id` beside `repo`, on a branch named for its
+  `kind`, reusing one already there. The first time, before the work ever starts,
+  the project's own `just copy-setup` makes it runnable in `project`: what a copy
+  needs is the project's business, not the loop's. Cut at the commit `at`, where
+  given, else at `repo`'s HEAD. Answers its root, or `{:error, reason}` with the
+  recipe's output where copy-setup is missing or fails; that copy is taken away
+  again, so a later hand-in sets one up afresh rather than reuse a half-made one.
+  """
+  @spec own(String.t(), String.t(), String.t(), String.t() | nil, String.t() | nil) ::
+          String.t() | {:error, String.t()}
+  def own(repo, kind, id, project, at \\ nil) do
+    root = root(repo, id)
+    if File.dir?(root), do: root, else: cut(repo, kind, id, project, at)
+  end
+
+  defp cut(repo, kind, id, project, at) do
+    root = root(repo, id)
+    {:ok, _} = git(repo, ["worktree", "add", "-b", "#{kind}/#{id}", root | List.wrap(at)])
+    here = Path.join(root, project || ".")
+
+    case cmd("just", ["copy-setup"], cd: here, stderr_to_stdout: true) do
+      {_out, 0} ->
+        root
+
+      {out, status} ->
+        git(repo, ["worktree", "remove", "--force", root])
+        git(repo, ["branch", "-D", "#{kind}/#{id}"])
+
+        missing =
+          if out =~ "does not contain recipe", do: "this project has no copy-setup recipe. "
+
+        {:error,
+         "#{missing}`just copy-setup` failed in #{project || "."} (exit #{status}): #{String.trim(out)}"}
+    end
+  end
+
+  # The project's own `just copy-teardown`, before its copy is taken away: what
+  # copy-setup made for it (a test database) goes with it. One that fails is
+  # logged, and the copy is taken away all the same, so none is ever stranded.
+  defp teardown(repo, id, project) do
+    here = Path.join(root(repo, id), project || ".")
+
+    with true <- File.dir?(here),
+         {out, status} when status != 0 <-
+           cmd("just", ["copy-teardown"], cd: here, stderr_to_stdout: true) do
+      Logger.warning(
+        "[Workflow #{id}] `just copy-teardown` in #{here} failed (exit #{status}); " <>
+          "the copy is removed anyway: #{String.trim(out)}"
+      )
+    end
+
+    :ok
+  end
+
+  @doc "Where the worktree checkout for `id` beside `repo` is, or would be."
+  @spec root(String.t(), String.t()) :: String.t()
+  def root(repo, id), do: "#{repo}-#{id}"
+
+  @doc """
+  Runs `just copy-teardown` in `project` of the worktree checkout made for `id`
+  beside `repo`, removes it, and deletes its branch.
+  """
+  @spec disown(String.t(), String.t(), String.t(), String.t() | nil) :: :ok
+  def disown(repo, kind, id, project \\ nil) do
+    teardown(repo, id, project)
+    git(repo, ["worktree", "remove", root(repo, id)])
+    git(repo, ["branch", "-D", "#{kind}/#{id}"])
+    :ok
+  end
+
+  @doc """
+  Takes away the worktree checkout made for `id` beside `repo` even with changes
+  in it, after `just copy-teardown` there as `disown/4` does, and deletes its
+  branch: what stopping a work for good does.
+  """
+  @spec remove(String.t(), String.t(), String.t(), String.t() | nil) :: :ok
+  def remove(repo, kind, id, project \\ nil) do
+    teardown(repo, id, project)
+    git(repo, ["worktree", "remove", "--force", root(repo, id)])
+    git(repo, ["branch", "-D", "#{kind}/#{id}"])
+    :ok
+  end
+
+  @doc """
+  Marks the work for `id` stopped for good, in the git directory of `repo` (so
+  the mark outlives its checkout). Unlike `stop/4`, handing it in again does not
+  clear it.
+  """
+  @spec cancel(String.t(), String.t()) :: :ok
+  def cancel(repo, id) do
+    path = path(repo, id)
+    kept = repo |> results(id) |> Map.put("cancelled", %{"at" => now()})
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(kept))
+  end
+
+  @doc "Whether the work for `id` was stopped for good; false where `dir` is no git checkout."
+  @spec cancelled?(String.t() | nil, String.t()) :: boolean()
+  def cancelled?(dir, id) do
+    is_binary(dir) and File.dir?(dir) and
+      match?({:ok, _}, git(dir, ~w(rev-parse --path-format=absolute --git-common-dir))) and
+      Map.has_key?(results(dir, id), "cancelled")
+  end
+
+  @doc """
+  Removes each of `paths` there is in the checkout and commits that removal in
+  one commit, or none if none is there.
+  """
+  @spec remove_files(String.t(), [String.t()], String.t()) :: :ok | :unchanged | {:error, term()}
+  def remove_files(root, paths, message) do
+    present = Enum.filter(paths, &File.exists?(Path.join(root, &1)))
+
+    with false <- present == [],
+         {:ok, _removed} <- git(root, ["rm", "-q", "--" | present]),
+         {:ok, _committed} <- git(root, ["commit", "-m", message, "--" | present]) do
+      :ok
+    else
+      true -> :unchanged
+      {:error, why} -> {:error, why}
+    end
+  end
+
+  @doc """
+  Where work cut from `repo` lands: the repository's primary checkout (the first
+  worktree git lists, even when `repo` is a linked worktree of it) and the branch
+  it has checked out. `nil` when `repo` is not a git checkout.
+  """
+  @spec landing(String.t() | nil) :: %{folder: String.t(), branch: String.t()} | nil
+  def landing(repo) do
+    with true <- is_binary(repo) and File.dir?(repo),
+         {:ok, "worktree " <> listed} <- git(repo, ~w(worktree list --porcelain)),
+         folder = listed |> String.split("\n") |> hd(),
+         {:ok, branch} <- git(folder, ~w(rev-parse --abbrev-ref HEAD)) do
+      %{folder: folder, branch: branch}
+    else
+      _none -> nil
+    end
+  end
+
+  @doc """
+  Whether the work `kind`/`id` landed: its branch, or a commit of its own (named
+  `<kind> <id>: ...`, as its story or issue file's is), is merged in the main
+  copy. Stopping a work commits in the main copy too; that commit is not a landing.
+  """
+  @spec landed?(String.t() | nil, String.t(), String.t()) :: boolean()
+  def landed?(repo, kind, id) do
+    with %{folder: folder} <- landing(repo) do
+      branch_merged?(folder, "#{kind}/#{id}") or commits_merged?(folder, "#{kind} #{id}: ")
+    else
+      _none -> false
+    end
+  end
+
+  # In the main copy's branch, but merged into it: a branch just cut, with no
+  # commits of its own, sits on the main branch's own line and has not landed.
+  defp branch_merged?(folder, branch) do
+    with {:ok, tip} <- git(folder, ["rev-parse", "--verify", "-q", "refs/heads/" <> branch]),
+         {:ok, _} <- git(folder, ["merge-base", "--is-ancestor", tip, "HEAD"]),
+         {:ok, line} <- git(folder, ~w(rev-list --first-parent HEAD)) do
+      tip not in String.split(line, "\n", trim: true)
+    else
+      _none -> false
+    end
+  end
+
+  defp commits_merged?(folder, prefix) do
+    case git(folder, ["log", "-F", "--grep=" <> prefix, "--format=%s", "HEAD"]) do
+      {:ok, subjects} ->
+        subjects
+        |> String.split("\n", trim: true)
+        |> Enum.any?(
+          &(String.starts_with?(&1, prefix) and not String.starts_with?(&1, prefix <> "stopped"))
+        )
+
+      _none ->
+        false
+    end
+  end
+
+  # A git status that never takes the index lock: a read beside another
+  # hand-in's add or commit would make that one fail on index.lock.
+  @no_lock [env: [{"GIT_OPTIONAL_LOCKS", "0"}]]
+
+  @doc "The snapshot a template decides from, or `:none` outside a git checkout."
+  @spec snapshot(String.t(), String.t()) :: map() | :none
+  def snapshot(root, id) do
+    with {:ok, head} <- git(root, ~w(rev-parse HEAD^{tree})),
+         {:ok, "worktree " <> listed} <- git(root, ~w(worktree list --porcelain)),
+         main_copy = listed |> String.split("\n") |> hd(),
+         {:ok, main} <- git(main_copy, ~w(rev-parse --abbrev-ref HEAD)),
+         {:ok, commits} <- git(root, ["rev-list", "--count", "--no-merges", "#{main}..HEAD"]),
+         {:ok, status} <- git(root, ~w(status --porcelain), @no_lock) do
+      %{
+        head: head,
+        main: main,
+        main_copy: main_copy,
+        commits: String.to_integer(commits),
+        dirty?: status != "",
+        results: results(root, id)
+      }
+    else
+      _no_git -> :none
+    end
+  end
+
+  @doc "Keeps what `step` found at the checkout's tree as it stands now."
+  @spec record(String.t(), String.t(), String.t(), map()) :: :ok
+  def record(root, id, step, result) do
+    {:ok, head} = git(root, ~w(rev-parse HEAD^{tree}))
+    path = path(root, id)
+    kept = root |> results(id) |> Map.update(head, %{step => result}, &Map.put(&1, step, result))
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(kept))
+    # The one point a report is sent from: the work's whole picture, to the server.
+    Workflow.Report.recorded(root, id)
+  end
+
+  @doc "The commit the checkout is at, or nil where it has none."
+  @spec commit(String.t()) :: String.t() | nil
+  def commit(root) do
+    case git(root, ~w(rev-parse HEAD)) do
+      {:ok, commit} -> commit
+      _none -> nil
+    end
+  end
+
+  @doc """
+  Keeps the work as it was handed in, beside its results, less the `agent` and
+  `agents` entries, since either may carry a provider's key. A work handed in
+  again replaces what was kept, and is no longer stopped.
+  """
+  @spec keep(String.t(), String.t(), map()) :: :ok
+  def keep(root, id, work) do
+    path = path(root, id)
+
+    kept =
+      root
+      |> results(id)
+      |> Map.put("work", Map.drop(work, ["agent", "agents"]))
+      |> Map.delete("stopped")
+
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(kept))
+  end
+
+  @doc """
+  Forgets the `run` and `certify` results kept for the checkout's current tree,
+  and the work's `stopped`, so a work handed in again at an unchanged tree runs
+  its checks afresh (seen live: a failure from a missing .env.test, fixed, came
+  back every hand-in). Nothing is done outside a git checkout.
+  """
+  @spec afresh(String.t(), String.t()) :: :ok
+  def afresh(root, id) do
+    with true <- is_binary(root) and File.dir?(root),
+         {:ok, _git_dir} <- git(root, ~w(rev-parse --path-format=absolute --git-common-dir)),
+         {:ok, tree} <- git(root, ~w(rev-parse HEAD^{tree})) do
+      found = results(root, id)
+
+      kept =
+        found
+        |> Map.delete("stopped")
+        |> then(fn kept ->
+          case kept[tree] do
+            %{} = at -> Map.put(kept, tree, Map.drop(at, ["run", "certify"]))
+            _none -> kept
+          end
+        end)
+
+      if kept != found, do: File.write!(path(root, id), Jason.encode!(kept))
+
+      # `analyse/3` reads a recipe's latest run at the tree rather than run it again:
+      # marked afresh, the next makes a new run folder. The evidence is kept.
+      dir_analysis = analysis_dir(root)
+
+      for recipe <- ["run", "certify"], {run, _meta} <- [Sarif.latest(dir_analysis, recipe)] do
+        Sarif.merge_meta(run, %{"afresh" => true})
+      end
+    end
+
+    :ok
+  end
+
+  @doc "Keeps why the loop gave up on the work at `step`, until it is handed in again."
+  @spec stop(String.t(), String.t(), String.t(), String.t()) :: :ok
+  def stop(root, id, step, reason) do
+    path = path(root, id)
+    stopped = %{"step" => step, "reason" => reason, "at" => now()}
+    kept = root |> results(id) |> Map.put("stopped", stopped)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(kept))
+  end
+
+  @doc "Why the loop gave up on the work, or `nil` while it has not."
+  @spec stopped(String.t(), String.t()) :: map() | nil
+  def stopped(root, id), do: root |> results(id) |> Map.get("stopped")
+
+  @doc "Keeps what the work's owner said to it, beside its results, until an agent's next turn takes it."
+  @spec say(String.t(), String.t(), String.t()) :: :ok
+  def say(root, id, said) do
+    path = path(root, id)
+    kept = root |> results(id) |> Map.update("said", [said], &(&1 ++ [said]))
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(kept))
+  end
+
+  @doc """
+  Keeps the owner's rejection note beside the work's results, under no tree, so
+  it outlives a merge or a commit, until `answered/2` says the coder has had it.
+  """
+  @spec reject(String.t(), String.t(), String.t()) :: :ok
+  def reject(root, id, note) do
+    path = path(root, id)
+    kept = root |> results(id) |> Map.put("rejected", note)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(kept))
+  end
+
+  @doc "Forgets the owner's rejection note: the coder has had a turn with it."
+  @spec answered(String.t(), String.t()) :: :ok
+  def answered(root, id) do
+    {rejected, kept} = root |> results(id) |> Map.pop("rejected")
+    if rejected, do: File.write!(path(root, id), Jason.encode!(kept))
+    :ok
+  end
+
+  @doc "`say/3` for a work with a checkout at `root`, as POST /work/say does; `:none` with none."
+  @spec say_to(String.t(), String.t(), String.t()) :: :ok | :none | term()
+  def say_to(root, id, said) do
+    with true <- File.dir?(root) or :none,
+         %{} <- snapshot(root, id),
+         do: say(root, id, said)
+  end
+
+  @doc "Everything said to the work since it was last taken, and forgets it, so each is said once."
+  @spec heard(String.t(), String.t()) :: [String.t()]
+  def heard(root, id) do
+    {said, kept} = root |> results(id) |> Map.pop("said", [])
+    if said != [], do: File.write!(path(root, id), Jason.encode!(kept))
+    said
+  end
+
+  @doc """
+  Writes `content` at `path` in the checkout and commits that file alone with
+  `message`. A file already there with the same content is left as it is, and
+  nothing is committed.
+  """
+  @spec commit_file(String.t(), String.t(), String.t(), String.t()) ::
+          :ok | :unchanged | {:error, term()}
+  def commit_file(root, path, content, message),
+    do: commit_files(root, [{path, content}], message)
+
+  @doc "Writes each `{path, content}` and commits those that changed in one commit, or none if none did."
+  @spec commit_files(String.t(), [{String.t(), String.t()}], String.t()) ::
+          :ok | :unchanged | {:error, term()}
+  def commit_files(root, files, message) do
+    # One write and commit at a time in a checkout: two works handed in at once
+    # collided on git's index lock, and the second's file went unrecorded. The
+    # lock is the checkout, as `promote/2`'s is; the id's second part is who asks.
+    :global.trans({{__MODULE__, root}, self()}, fn -> commit_files!(root, files, message) end)
+  end
+
+  defp commit_files!(root, files, message) do
+    # Unchanged only when committed as it is: a file left written by a failed
+    # commit is committed now.
+    changed =
+      Enum.reject(files, fn {path, content} ->
+        File.read(Path.join(root, path)) == {:ok, content} and not changed?(root, path)
+      end)
+
+    paths = Enum.map(changed, &elem(&1, 0))
+
+    with false <- changed == [],
+         :ok <- write_all(root, changed),
+         {:ok, _added} <- git(root, ["add", "--" | paths]),
+         {:ok, _committed} <- git(root, ["commit", "-m", message, "--" | paths]) do
+      :ok
+    else
+      true -> :unchanged
+      {:error, why} -> {:error, why}
+    end
+  end
+
+  defp write_all(root, files) do
+    Enum.reduce_while(files, :ok, fn {path, content}, :ok ->
+      file = Path.join(root, path)
+
+      case File.mkdir_p(Path.dirname(file)) do
+        :ok ->
+          case File.write(file, content) do
+            :ok -> {:cont, :ok}
+            error -> {:halt, error}
+          end
+
+        error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  @doc "Whether `path` in the checkout has changes not yet committed."
+  @spec changed?(String.t(), String.t()) :: boolean()
+  def changed?(root, path) do
+    # Its output alone: git warns on stderr of a directory not there yet.
+    case cmd("git", ["status", "--porcelain", "--", path], [cd: root] ++ @no_lock) do
+      {"", 0} -> false
+      _changed -> true
+    end
+  end
+
+  @doc "The checkout's changed paths when every one is tracked and named in .gitignore, else `[]`."
+  @spec ignored_changes(String.t()) :: [String.t()]
+  def ignored_changes(root) do
+    # Its output untrimmed: each line's path starts at the fourth character.
+    with {status, 0} <- cmd("git", ~w(status --porcelain), [cd: root] ++ @no_lock),
+         {:ok, ignored} <- git(root, ~w(ls-files -c -i --exclude-standard)),
+         changed =
+           status |> String.split("\n", trim: true) |> Enum.map(&String.slice(&1, 3..-1//1)),
+         true <- changed != [] and changed -- String.split(ignored, "\n") == [] do
+      changed
+    else
+      _other -> []
+    end
+  end
+
+  @doc "The work last kept for `id`, as it was handed in, or `%{}` before one is."
+  @spec kept(String.t(), String.t()) :: map()
+  def kept(root, id), do: root |> results(id) |> Map.get("work", %{})
+
+  @doc "Keeps the commit the checkout is at as the last prod provision that passed, beside every work's results."
+  @spec deployed(String.t()) :: :ok
+  def deployed(root) do
+    {:ok, commit} = git(root, ~w(rev-parse HEAD))
+    File.mkdir_p!(Path.dirname(deployed_path(root)))
+    File.write!(deployed_path(root), commit)
+  end
+
+  @doc "The commits, one a line, since the last prod provision that passed; nil when none has."
+  @spec since_deployed(String.t()) :: String.t() | nil
+  def since_deployed(root) do
+    with {:ok, commit} <- File.read(deployed_path(root)),
+         {:ok, log} <- git(root, ["log", "--oneline", "#{commit}..HEAD"]) do
+      log
+    else
+      _none -> nil
+    end
+  end
+
+  # Not a `.json`: no work's id can name it.
+  defp deployed_path(root) do
+    {:ok, git_dir} = git(root, ~w(rev-parse --path-format=absolute --git-common-dir))
+    Path.join([git_dir, "workflow", "prod-deployed"])
+  end
+
+  @doc """
+  What a work that ended done left, read from its results beside `dir` (its
+  checkout, or the repository it was cut from): the last decision note, the
+  reviewer's where there is one, and the commit it landed as with git's
+  shortstat line for it, or nil where nothing landed.
+  """
+  @spec outcome(String.t(), String.t()) :: %{
+          note: String.t() | nil,
+          landed: {String.t(), String.t() | nil} | nil
+        }
+  def outcome(dir, id) do
+    # The tree results only: each value a step's result.
+    trees =
+      dir
+      |> results(id)
+      |> Map.values()
+      |> Enum.filter(&(is_map(&1) and Enum.all?(Map.values(&1), fn r -> is_map(r) end)))
+
+    last =
+      Enum.max_by(
+        trees,
+        &{Map.has_key?(&1, "promote"), get_in(&1, ["by", "at"]) || ""},
+        fn -> %{} end
+      )
+
+    by = get_in(last, ["by", "step"])
+    note = get_in(last, ["review", "note"]) || (by && get_in(last, [by, "note"]))
+
+    landed =
+      case last["promote"] do
+        %{"status" => "promoted", "commit" => commit} ->
+          with %{folder: folder} <- landing(dir),
+               {:ok, stat} <- git(folder, ["diff", "--shortstat", commit <> "^1", commit]) do
+            {commit, stat}
+          else
+            _none -> {commit, nil}
+          end
+
+        _not_landed ->
+          nil
+      end
+
+    %{note: note, landed: landed}
+  end
+
+  @doc "The output of `git diff --stat <main>...HEAD` for the checkout."
+  @spec diff_stat(String.t(), String.t()) :: String.t()
+  def diff_stat(root, main) do
+    {:ok, out} = git(root, ["diff", "--stat", "#{main}...HEAD"])
+    out
+  end
+
+  @doc "The output of `git diff <a> <b> --stat -- <path>` for the checkout."
+  @spec diff_stat(String.t(), String.t(), String.t(), String.t()) :: String.t()
+  def diff_stat(root, a, b, path) do
+    {:ok, out} = git(root, ["diff", a, b, "--stat", "--", path])
+    out
+  end
+
+  @doc """
+  Whether none of the paths that differ between `tree` and HEAD is one the work
+  changes against `main` (`git diff <main>...HEAD`): what came in since was main's.
+  False where either cannot be read.
+  """
+  @spec only_main_since?(String.t(), String.t(), String.t()) :: boolean()
+  def only_main_since?(root, tree, main) do
+    with {:ok, since} <- git(root, ["diff", "--name-only", tree, "HEAD"]),
+         {:ok, own} <- git(root, ["diff", "--name-only", "#{main}...HEAD"]) do
+      MapSet.disjoint?(MapSet.new(String.split(since)), MapSet.new(String.split(own)))
+    else
+      _unread -> false
+    end
+  end
+
+  @doc "Merges the main copy's branch, then analyses `dir` of the checkout with the recipe certify."
+  @spec certify(String.t(), map(), String.t() | nil) :: map()
+  def certify(root, %{main: main}, dir) do
+    case git(root, ["merge", "--no-edit", main]) do
+      {:ok, _merged} ->
+        analyse(root, dir, "certify")
+
+      {:error, conflict} ->
+        git(root, ~w(merge --abort))
+        failed("Merging `#{main}` conflicts: #{conflict} Merge it, resolve, and commit.")
+    end
+  end
+
+  @doc "Analyses `dir` of the checkout as it stands, with the recipe run."
+  @spec test(String.t(), String.t() | nil) :: map()
+  def test(root, dir), do: analyse(root, dir, "run")
+
+  @doc """
+  Runs the project's demo, as `just demo <dir>` into the `demo` folder of the tree's
+  analysis directory, the way certify is run. A project with no `demo` recipe has no
+  demo: `%{"status" => "none"}`, not a failure.
+  """
+  @spec demo(String.t(), String.t() | nil) :: map()
+  def demo(root, dir) do
+    case cmd("just", ["--show", "demo"], cd: Path.join(root, dir || "."), stderr_to_stdout: true) do
+      {_shown, 0} -> analyse(root, dir, "demo", [], "demo")
+      _no_recipe -> %{"status" => "none"}
+    end
+  end
+
+  @doc """
+  Analyses `dir` of the checkout with the recipe named `recipe`: runs `just <recipe>
+  <directory>` in the project, handed a run folder of its own
+  (`<git common dir>/workflow/analysis/<tree>/<unix time>/`) that holds the SARIF
+  files it writes and one meta.json for the run (recipe, at, took_ms, exit), and
+  reads the verdict from there. A tree already analysed with `recipe` has its
+  latest run read, not run again. With `into`, the recipe is given that folder of
+  the tree's analysis directory instead.
+  """
+  @spec analyse(
+          String.t(),
+          String.t() | nil,
+          String.t() | [String.t()],
+          [
+            {String.t(), String.t()}
+          ],
+          String.t() | nil
+        ) ::
+          map()
+  def analyse(root, dir, recipe, env \\ [], into \\ nil) do
+    dir_analysis = analysis_dir(root)
+    # A recipe with arguments (`["provision", step]`) is kept in meta.json by its whole command,
+    # its environment first, so uat and prod at one tree are each run.
+    args = List.wrap(recipe)
+    recipe = Enum.join(Enum.map(env, fn {k, v} -> "#{k}=#{v}" end) ++ args, " ")
+
+    latest =
+      if into do
+        target = Path.join(dir_analysis, into)
+        meta = Sarif.meta(target)
+        if meta["recipe"] == recipe and meta["afresh"] != true, do: {target, meta}
+      else
+        Sarif.latest(dir_analysis, recipe)
+      end
+
+    # A recipe that failed without leaving an error result still failed: its exit is kept.
+    if latest do
+      {target, ran} = latest
+
+      Sarif.verdict(
+        target,
+        ran["exit"],
+        "`just #{recipe}` failed at this tree (exit #{ran["exit"]})."
+      )
+    else
+      verdict = run_recipe(root, dir, dir_analysis, args, env, recipe, into)
+
+      # A red is only a red after it fails twice at the same tree: the run and
+      # certify steps run their recipe once more, whole, in a run folder of its own.
+      if verdict["status"] == "failed" and args in [["run"], ["certify"], ["ci"]] and env == [] and
+           is_nil(into) do
+        rerun(root, dir, dir_analysis, args, recipe, verdict)
+      else
+        verdict
+      end
+    end
+  end
+
+  # The second run of a recipe whose first failed. Its verdict is the step's; one
+  # that passes tells the manager, once, that the tree was flaky.
+  defp rerun(root, dir, dir_analysis, args, recipe, first) do
+    case run_recipe(root, dir, dir_analysis, args, [], recipe, nil) do
+      %{"status" => "passed"} = second ->
+        note =
+          "The tree #{Path.basename(dir_analysis)} was flaky: `just #{recipe}` failed, " <>
+            "then passed when run again at the same tree. The first run's failures:\n\n" <>
+            "#{first["note"]}\n\nBoth runs are kept, in #{first["dir"]} and #{second["dir"]}. " <>
+            "Hand in an issue for this flaky failure."
+
+        if Workflow.Manager.configured(),
+          do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", note) end)
+
+        second
+
+      second ->
+        second
+    end
+  end
+
+  defp run_recipe(root, dir, dir_analysis, args, env, recipe, into) do
+    target = if into, do: Path.join(dir_analysis, into), else: Sarif.new_run(dir_analysis)
+    project = Path.join(root, dir || ".")
+    started = System.monotonic_time(:millisecond)
+    File.mkdir_p!(target)
+
+    {output, status} =
+      cmd("just", args ++ [target], cd: project, stderr_to_stdout: true, env: env)
+
+    took_ms = System.monotonic_time(:millisecond) - started
+
+    Logger.info("[Workflow] #{recipe} in #{project}: exit #{status} in #{took_ms}ms")
+
+    Sarif.merge_meta(target, %{
+      "tree" => Path.basename(dir_analysis),
+      "recipe" => recipe,
+      "at" => now(),
+      "took_ms" => took_ms,
+      "exit" => status
+    })
+
+    log(Path.join(dir_analysis, "log"), "just #{recipe}: exit #{status} in #{took_ms}ms")
+
+    Sarif.verdict(target, status, output)
+  end
+
+  @doc """
+  The path of the work's log at the tree the checkout is at now: `log` in the
+  tree's analysis directory, beside its SARIF files and meta.json. Nil where
+  there is no checkout or no git.
+  """
+  @spec log(String.t()) :: String.t() | nil
+  def log(root) do
+    with true <- File.dir?(root),
+         {:ok, git_dir} <- git(root, ~w(rev-parse --path-format=absolute --git-common-dir)),
+         {:ok, tree} <- git(root, ~w(rev-parse HEAD^{tree})) do
+      Path.join([git_dir, "workflow", "analysis", tree, "log"])
+    else
+      _none -> nil
+    end
+  end
+
+  @doc "Appends `line` to the log at `path`, with the time it is written."
+  @spec log(String.t(), String.t()) :: :ok
+  def log(path, line) do
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "#{now()} #{line}\n", [:append])
+  end
+
+  defp analysis_dir(root) do
+    {:ok, git_dir} = git(root, ~w(rev-parse --path-format=absolute --git-common-dir))
+    {:ok, tree} = git(root, ~w(rev-parse HEAD^{tree}))
+    Path.join([git_dir, "workflow", "analysis", tree])
+  end
+
+  defp now, do: DateTime.utc_now() |> DateTime.to_iso8601()
+
+  defp failed(note), do: %{"status" => "failed", "note" => note}
+
+  @doc "Merges the checkout's commit into the main copy, as one merge commit."
+  @spec promote(String.t(), map()) :: map()
+  def promote(root, %{main_copy: main_copy}) do
+    # The commit, not the branch: a detached checkout has no branch to name.
+    {:ok, commit} = git(root, ~w(rev-parse HEAD))
+
+    # One merge at a time into the main copy: two works can finish together.
+    # The lock is the main copy; the id's second part is who asks for it.
+    :global.trans({{__MODULE__, main_copy}, self()}, fn ->
+      push = Application.get_env(:workflow, :push, %{})
+      remote = push["remote"] || "origin"
+      branch = push["branch"] || "dev"
+      {:ok, before} = git(main_copy, ~w(rev-parse HEAD))
+
+      with :ok <- follow(main_copy, remote, branch) do
+        land(main_copy, commit, remote, branch, before)
+      end
+    end)
+  end
+
+  # Takes the remote branch's new commits into the main copy before a work
+  # merges, so the push after it is a fast-forward. No such remote, or no such
+  # branch on it yet, takes nothing: only a merge left in conflict has one to
+  # abort. A conflict is aborted and stops the work.
+  defp follow(main_copy, remote, branch) do
+    with {:ok, _url} <- git(main_copy, ["remote", "get-url", remote]),
+         {:ok, _fetched} <- git(main_copy, ["remote", "update", remote]),
+         {:error, why} <- git(main_copy, ["merge", "--no-edit", "#{remote}/#{branch}"]),
+         {:ok, _aborted} <- git(main_copy, ~w(merge --abort)) do
+      conflicted("The main copy does not merge #{remote} #{branch}: #{why}")
+    else
+      _taken_or_none -> :ok
+    end
+  end
+
+  defp conflicted(why) do
+    note = "#{why}\n\nNothing was landed or pushed. Hand in an issue with this conflict."
+
+    if Workflow.Manager.configured(),
+      do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", note) end)
+
+    %{"status" => "conflicted", "note" => note}
+  end
+
+  defp land(main_copy, commit, remote, branch, before) do
+    case git(main_copy, ["merge", "--no-ff", "--no-edit", commit]) do
+      {:ok, _merged} ->
+        {:ok, landed} = git(main_copy, ~w(rev-parse HEAD))
+
+        # No such remote pushes nothing. A refused push never holds landing;
+        # the next push carries everything.
+        with {:ok, _url} <- git(main_copy, ["remote", "get-url", remote]),
+             {:error, why} <- git(main_copy, ["push", remote, "HEAD:" <> branch]) do
+          note =
+            "Landed, but the push to #{remote} #{branch} failed: #{why}\n\n" <>
+              "Hand in an issue with this failure now; do not ask first."
+
+          # Told once, in the background as the loop's landings are; nothing retries.
+          if Workflow.Manager.configured(),
+            do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", note) end)
+
+          %{"status" => "promoted", "note" => note, "commit" => landed}
+        else
+          _pushed_or_no_remote -> %{"status" => "promoted", "commit" => landed}
+        end
+
+      {:error, why} ->
+        git(main_copy, ~w(merge --abort))
+
+        # The remote's new commits, just taken, are what the work conflicts with.
+        if git(main_copy, ~w(rev-parse HEAD)) != {:ok, before} do
+          conflicted("The work does not merge over #{remote} #{branch}'s new commits: #{why}")
+        else
+          %{
+            "status" => "refused",
+            "note" =>
+              "It does not merge into the main copy (#{String.slice(why, 0, 400)}). " <>
+                "Merge the main copy's branch into yours, resolve it, and commit."
+          }
+        end
+    end
+  end
+
+  @doc """
+  Runs `just ci <dir>` at exactly the landed `commit`, in a detached checkout of
+  its own (`<git common dir>/workflow/ci/<commit>`) that a later landing does not
+  move, through `analyse/3`: its own run folder, and a failure run once more.
+  A project with no `ci` recipe is green. Answers `:green`; `:known` when the
+  previous ci run already had every failure; `{:new, verdict}` when it had none
+  of them; `{:mixed, verdict}` when it had some.
+
+  When it ends it keeps its own checkout and removes every other one under
+  `<git common dir>/workflow/ci/` whose run is not still going.
+  """
+  @spec ci(String.t(), String.t(), String.t() | nil) ::
+          :green | :known | {:new, map()} | {:mixed, map()}
+  def ci(main_copy, commit, dir) do
+    {:ok, git_dir} = git(main_copy, ~w(rev-parse --path-format=absolute --git-common-dir))
+    at = Path.join([git_dir, "workflow", "ci", commit])
+    # Held while the run goes, so no other run's pruning takes its checkout.
+    lock = {{__MODULE__, :ci, at}, self()}
+    :global.set_lock(lock, [node()])
+
+    try do
+      git(main_copy, ["worktree", "remove", "--force", at])
+      {:ok, _} = git(main_copy, ["worktree", "add", "--detach", at, commit])
+
+      verdict =
+        case cmd("just", ["--show", "ci"], cd: Path.join(at, dir || "."), stderr_to_stdout: true) do
+          {_shown, 0} -> analyse(at, dir, "ci")
+          _no_recipe -> %{"status" => "passed", "note" => "no ci recipe"}
+        end
+
+      compared(git_dir, commit, verdict)
+    after
+      prune_ci(main_copy, Path.dirname(at), commit)
+      :global.del_lock(lock, [node()])
+    end
+  end
+
+  # Removes the ci checkouts other than `kept` whose run is not going. A failure
+  # is logged and changes nothing else.
+  defp prune_ci(main_copy, ci_dir, kept) do
+    with {:ok, names} <- File.ls(ci_dir) do
+      for name <- names, name != kept, at = Path.join(ci_dir, name) do
+        lock = {{__MODULE__, :ci, at}, self()}
+
+        if :global.set_lock(lock, [node()], 0) do
+          try do
+            with {:error, why} <- git(main_copy, ["worktree", "remove", "--force", at]) do
+              Logger.warning("[Workflow] could not remove the ci checkout #{at}: #{why}")
+            end
+          after
+            :global.del_lock(lock, [node()])
+          end
+        end
+      end
+    end
+
+    :ok
+  end
+
+  # Kept as the last ci run, and read against the one before it. Not a `.json`:
+  # no work's id can name it.
+  defp compared(git_dir, commit, verdict) do
+    path = Path.join([git_dir, "workflow", "ci-last"])
+
+    was =
+      with {:ok, json} <- File.read(path),
+           {:ok, %{"failures" => was}} <- Jason.decode(json) do
+        was
+      else
+        _none -> []
+      end
+
+    failures = if verdict["status"] == "passed", do: [], else: failure_keys(verdict)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(%{"commit" => commit, "failures" => failures}))
+
+    cond do
+      failures == [] -> :green
+      failures -- was == [] -> :known
+      Enum.all?(failures, &(&1 not in was)) -> {:new, verdict}
+      true -> {:mixed, verdict}
+    end
+  end
+
+  # A failure is the same where its tool, file and text are: a line moved is not
+  # new. A red with no failing result is its exit: its output differs run to run,
+  # and a run read again at the same tree has none.
+  defp failure_keys(%{"dir" => dir}) do
+    case Sarif.failures(dir) do
+      [_ | _] = failures -> Enum.uniq(for f <- failures, do: [f["tool"], f["file"], f["text"]])
+      [] -> [["ci", nil, "exit #{Sarif.meta(dir)["exit"]}"]]
+    end
+  end
+
+  defp results(root, id) do
+    with {:ok, json} <- File.read(path(root, id)),
+         {:ok, %{} = kept} <- Jason.decode(json) do
+      kept
+    else
+      _none -> %{}
+    end
+  end
+
+  defp path(root, id) do
+    {:ok, git_dir} = git(root, ~w(rev-parse --path-format=absolute --git-common-dir))
+    Path.join([git_dir, "workflow", "#{id}.json"])
+  end
+
+  defp git(dir, args, opts \\ []) do
+    case cmd("git", args, [cd: dir, stderr_to_stdout: true] ++ opts) do
+      {out, 0} -> {:ok, String.trim(out)}
+      {out, _status} -> {:error, String.trim(out)}
+    end
+  end
+
+  # `System.cmd/3`, or what a test puts in its place.
+  defp cmd(command, args, opts),
+    do: Application.get_env(:workflow, :cmd, &System.cmd/3).(command, args, opts)
+end

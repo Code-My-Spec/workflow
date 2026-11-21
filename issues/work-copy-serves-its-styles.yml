@@ -1,0 +1,17 @@
+id: "work-copy-serves-its-styles"
+kind: "issue"
+title: An app started from a work's checkout serves no stylesheet
+text: |-
+  Where: the workflow project (`workflow` directory). Fix it either where a work's checkout is made or where agents are told to start the app (the browser brief in lib/workflow/parts.ex), whichever change is smaller. Tests go beside the existing ones.
+
+  Fault: on the auction's three-sides journey, an app started from a work's checkout served no stylesheet, and app.css answered 404. The reviewer walked every page unstyled and said so. A fresh worktree has no built assets. Running `mix assets.build` by hand in the checkout fixed it. The owner says: 'it for sure should serve the stylesheets.'
+
+  Fix: make an app started from a work's checkout serve its built assets. Don't tie the loop to Phoenix more than a recipe name. For example, the loop or the brief calls a project recipe that builds whatever the app needs, and the project's justfile decides what that recipe runs. Say in your decision which place you chose and why.
+
+  How: make the smallest change.
+
+  Check: add tests beside the existing ones for each criterion. Tests must not start a real app or browser. Assert on the recipe asked for or on the brief text.
+criteria:
+  - "An app started from a work's checkout, the way agents are told to start it, serves its stylesheet: for a Phoenix app such as the auction, app.css answers instead of 404."
+  - "The loop asks the project for this only through a recipe name. It runs no Phoenix or mix command of its own."
+  - "A project that has no such recipe gets its checkout, and its agents' instructions, as it does today."

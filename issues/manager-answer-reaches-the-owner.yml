@@ -1,0 +1,17 @@
+id: "manager-answer-reaches-the-owner"
+kind: "issue"
+title: The manager's answer to a loop report reaches nobody
+text: |-
+  Where: the workflow project (`workflow` directory): Run.land/2, where the loop sends its reports to the manager through Workflow.Messages.say("manager", "workflow", ...), Workflow.Messages, and the manager's brief. Tests go beside the existing ones.
+
+  Fault: at 15:57:36 on the auction's service, the loop told the auction's manager `issue design-system: waiting on its owner at fix: sent to the coder a third time...`. The manager looked, found the true cause and answered "it needs a person to fetch those dependencies". That answer went nowhere. Nobody was on the other end of a message the loop itself sent, and nothing was logged. The work sat for 20 minutes until a person happened to read the service log. Asked afterwards, the manager believed it had told the owner.
+
+  Fix: what the manager says back to a message the loop sent it is (1) logged by the service as one warning line naming the work, and (2) kept where the owner's chat sees it the next time the owner speaks or looks, the way messages between recipients are already kept. Use what Workflow.Messages already has. Add no new store. (3) The manager's brief says, in one sentence, that an answer to a loop report is read later by the owner, so it says what the manager did or exactly what a person must do.
+
+  How: make the smallest change that closes this. Nothing else: no retries, no escalation timer and no new recipient kinds.
+
+  Check: add one test per criterion, beside the existing ones.
+criteria:
+  - "When the manager answers a message the loop sent it (such as a work waiting on its owner), the service logs one warning line that names the work and holds the answer."
+  - "The manager's answer to a message the loop sent is kept, the way messages between recipients are already kept, and the owner's chat sees it the next time the owner speaks or looks."
+  - "The manager's brief says in one sentence that the owner reads an answer to a loop report later, so the answer says what the manager did or exactly what a person must do."

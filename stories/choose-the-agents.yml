@@ -1,0 +1,21 @@
+title: Choose which agents and models do the work
+workflow: build-and-land-work
+story: >
+  As the person running the project manager I want to choose which provider and model do each kind of work, so that I spend where it matters.
+rules:
+  - rule: The workflow names its own agents and what each is for. The caller names only the provider and model, for all agents or for each kind.
+    scenarios:
+      - happy: A story is handed in with a coder and reviewer on Opus and QA on Sonnet.
+  - rule: Agents run on the machine's own Claude Code login by default. A key, when given, rides in the call and is kept nowhere.
+    scenarios:
+      - happy: With no key given, the coder runs on the login already on the machine.
+  - rule: Several providers stay possible.
+    scenarios:
+      - happy: The same work runs with a coder on another provider.
+  - rule: The agents use only the basic tools, read, edit, write and bash, unless a need is shown.
+    scenarios:
+      - happy: A coder completes a story with only those four tools.
+questions:
+  - Should the read tool that truncates huge files be brought over?
+  - How is a model missing or out of date reported?
+  - How far can we get with no extra tools at all?

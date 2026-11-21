@@ -1,0 +1,13 @@
+title: A push the box refuses becomes an issue the loop fixes
+workflow: Get work off the machine
+story: >
+  As an owner, I want anything the box refuses to be fixed without me, so that dev only ever holds what passed every test.
+rules:
+  - rule: When the push after a landing is refused, the manager is told, with the remote's output, and starts an issue to fix it. Today Checkout.promote only leaves a note in the results that nobody reads.
+    scenarios:
+      - happy: "A work lands, the remote refuses the push saying 'ci: red at abc; push refused', and the manager receives a message carrying that text."
+      - happy: "The landing still counts: the work ends done and the main copy keeps the merge."
+      - fails: The remote cannot be reached (no network); the manager is told once with git's output, and nothing loops.
+  - rule: The next landing's push carries everything not yet on the remote; nothing is pushed again on a timer.
+    scenarios:
+      - happy: After a refused push, the fix lands and one push takes both commits.

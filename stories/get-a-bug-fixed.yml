@@ -1,0 +1,18 @@
+title: Get a bug fixed
+workflow: build-and-land-work
+story: >
+  As a customer I want a problem I report to be fixed by an agent and checked by another, so that I do not fix it myself.
+rules:
+  - rule: A reported problem goes to the project manager, which triages it.
+    scenarios:
+      - happy: A customer tells the chat about a problem and the project manager decides whether it becomes a fix.
+  - rule: A fix is a simple loop in which a coder fixes it, the work is certified, and a reviewer judges it. There is no QA step.
+    scenarios:
+      - happy: A coder fixes the issue with a test that shows it, the checks pass, and the reviewer passes it.
+  - rule: A team works one issue at a time.
+    scenarios:
+      - happy: A team with one issue in progress is given a second only after the first is finished.
+questions:
+  - Should certification run on every issue? The owner would keep it for now and take measurements.
+  - Should every issue end in promotion, or can landing be separate from the work?
+  - Does the fix have to include a test that fails without it?

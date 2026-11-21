@@ -1,0 +1,14 @@
+title: Record who the product is for
+workflow: talk-to-the-chat
+story: >
+  As a customer who has been interviewed about who my product is for, I want those people kept in my repository, so every story can name them and nobody has to ask me again.
+rules:
+  - rule: The project manager records personas in one file, personas.yml, in the project directory of the main copy.
+    scenarios:
+      - happy: "The manager's record tool, given personas (each with a name, and any of: main, wants, today, uses, refuses, pays, guess), writes personas.yml as a list in that order and commits it to the main copy with no work started."
+      - happy: Recording personas again replaces the file in a new commit.
+      - fails: A persona with no name is refused with a message that says so, and nothing is committed.
+  - rule: Longer research on a persona is kept beside it as plain text.
+    scenarios:
+      - happy: A persona recorded with research text also gets personas/<name>.md holding that text, committed in the same commit.
+      - happy: A persona recorded without research text gets no such file.

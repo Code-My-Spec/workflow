@@ -1,0 +1,23 @@
+title: Keep a project's docs as plain files
+workflow: run-the-project-manager
+story: >
+  As the person running the project manager I want my project's docs to be ordinary files in its repository, so that every agent finds them and nothing breaks.
+rules:
+  - rule: Docs in the repository are the solution. There is no submodule.
+    scenarios:
+      - happy: A fresh checkout or worktree has the docs with no further step.
+  - rule: Framework docs arrive inside a dependency, at a known path, pinned by the lockfile, and an agent opens them with the plain read tool.
+    scenarios:
+      - happy: After the dependencies are fetched, an agent reads the framework docs from disk.
+  - rule: Chat agent material lives in skills and reference files, and harness agent material lives in the project's own knowledge. It is not kept in both places.
+    scenarios:
+      - happy: The product interview playbook is a reference file of the chat's skill and the coder's rules stay with the loop.
+  - rule: A literal key is never left in a docs example.
+    scenarios:
+      - fails: A docs script with a hard-coded fallback key is removed.
+  - rule: A customer's own recordings and notes do not go in the code repository. They live in the marketing repository.
+    scenarios:
+      - happy: The customer folder is moved out of the docs.
+questions:
+  - Do agents need read_docs or search_docs, or is read with a path enough?
+  - Do the templated prompts in the old app survive, or does each role get a short brief with the work written per piece?

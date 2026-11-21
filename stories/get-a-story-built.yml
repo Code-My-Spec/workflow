@@ -1,0 +1,23 @@
+title: Get a story built, test first
+workflow: build-and-land-work
+story: >
+  As a customer I want a story handed in to be built by agents that first prove what is missing, so that what lands does what the story says.
+rules:
+  - rule: QA writes a test for each criterion first, and the system runs it and requires it to fail before the coder starts.
+    scenarios:
+      - happy: QA commits a test for the first criterion, the system runs it, it fails, and the coder is started to make it pass.
+      - fails: QA's test passes before any code is written, so the coder is not started on it.
+  - rule: The failing test is checked by running it. There are no rules about which agent may edit which files.
+    scenarios:
+      - happy: The coder changes a test file as well as code, and nothing is refused because of the file it touched.
+  - rule: Criteria are worked one at a time, in the order of the story's scenarios, and the coder makes each test pass.
+    scenarios:
+      - happy: A story with three criteria is worked as three rounds, each ending green before the next starts.
+  - rule: A test is enough. It need not be a spec.
+    scenarios:
+      - happy: QA writes a plain test for a criterion and the loop accepts it.
+questions:
+  - May QA call a criterion already met, and if so what must it show?
+  - Should a story's stages be written as stages of a journey rather than separate stories?
+  - Is a story handed in as one unit or as one per criterion when it has many?
+  - Does the loop keep the adversarial step for issues later? The owner asked whether to drop it for issues until later.

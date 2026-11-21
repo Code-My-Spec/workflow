@@ -1,0 +1,22 @@
+id: "requirements-callers-go"
+kind: "issue"
+title: Remove the requirement graph's pages, channels and MCP tools
+text: |-
+  Where: the CodeMySpec app itself, at the repository root (project "."), not the `workflow` directory. The root `justfile` has the `run` and `certify` recipes. Certify only compiles for now, so you must run the tests of what stays yourself.
+
+  Why: the owner is cutting the old harness down, because `workflow/` replaces it. This is part 1 of 2 for the requirement graph (`lib/code_my_spec/requirements/` and `requirements.ex`). This part removes what calls the graph: its LiveViews and templates, its channels, its MCP tools, their routes and nav links, and the tests, spex, fixtures and factories that exist only for them. Part 2, handed in later, removes the context and its schemas. Leave `lib/code_my_spec/requirements/` and `requirements.ex` in place for now. If something else still calls them, that call goes in part 2.
+
+  What stays and must keep working: accounts and sign-in, projects, the devops console, the operations console, and everything under `workflow/`. If any of these uses a piece on the list, leave that piece and say so. Do not cut it, and do not rewrite the console.
+
+  Rules:
+  - Deletion only. Add no replacement, no shim, and no stub module to keep a caller compiling. The caller goes too, or loses the call. A page whose only job was the deleted thing goes with its route and nav link.
+  - Tests, spex, fixtures and factories that exist only for deleted code go with it.
+  - Write no migration and drop no table. The data stays where it is.
+  - Write no test that a deleted thing is absent. The proof of a deletion is that the app compiles clean and the tests of what stays pass.
+
+  Check: run `mix compile --warnings-as-errors` in dev and in test (MIX_ENV=test). Both must be clean. Run the tests of accounts, projects and the two consoles. They must pass.
+
+  The commit says how many lines went, and names anything left behind and why.
+criteria:
+  - "With the requirement graph's LiveViews, channels and MCP tools removed, along with their routes and nav links, `mix compile --warnings-as-errors` is clean in both dev and test."
+  - "Accounts and sign-in, projects, the devops console, the operations console and everything under `workflow/` still work: their tests pass."

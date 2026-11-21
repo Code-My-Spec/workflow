@@ -1,0 +1,17 @@
+title: A manager session gets the manager's tools
+workflow: run-the-project-manager
+story: >
+  As an owner who keeps a Claude Code session open as my project manager, I want that session to hand work in, decide and look through the service, so the manager can be a session I can see instead of one the service runs.
+rules:
+  - rule: A manager session gets the manager's own tools over MCP at POST /mcp/manager.
+    scenarios:
+      - happy: tools/list on POST /mcp/manager names hand_in, decide and look, with the same inputs the service-run manager has, plus say and inbox.
+      - happy: A tools/call of hand_in there with a story (title, story, rules with scenarios, workflow) starts the work exactly as the service-run manager's hand_in does, using the repo, project, cap and agents from the manager settings in config.json, and answers what that tool answers.
+      - happy: A tools/call of look there answers what the service-run manager's look answers.
+      - fails: With no manager settings in the config, POST /mcp/manager answers 404.
+  - rule: The chat's connection never gets the manager's tools.
+    scenarios:
+      - fails: tools/list on POST /mcp still names only say and inbox, and a tools/call of hand_in there is refused as an unknown tool.
+  - rule: A manager session needs no agent of the service's.
+    scenarios:
+      - happy: With manager settings that name a repo but no "agent", the service boots, POST /mcp/manager works, and a say to the manager is delivered by its recipient kind (claude-code, codex or inbox) and not by running a turn.

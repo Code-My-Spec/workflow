@@ -1,0 +1,13 @@
+title: A connecting chat gets its brief
+workflow: talk-to-the-chat
+story: >
+  As a person talking to my project through a chat, I want the chat to know its job the moment it connects, so I do not have to install or explain anything.
+rules:
+  - rule: The service gives a connecting chat the brief named in its config file.
+    scenarios:
+      - happy: With "instructions" in config.json set to the path of a text file, the answer to an MCP initialize on POST /mcp carries that file's contents as its instructions.
+      - happy: A brief file that starts with a block between two --- lines (a skill's front matter) is sent without that block.
+      - fails: With "instructions" naming a file that is not there, the service stops at boot with a message that names the file.
+  - rule: With no brief configured, nothing changes.
+    scenarios:
+      - happy: With no "instructions" in the config, the answer to initialize has no instructions and everything else works as today.

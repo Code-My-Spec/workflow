@@ -1,0 +1,16 @@
+title: QA and the reviewer use the page in a real browser
+workflow: Build and land work
+story: >
+  As an owner, I want the agents that check a story to use its page the way a person would, so that what passes the tests also works in a browser. (The first drill: eight tests passed and the form still kept the last entry's details; the fix passed its test and the form still keeps them.)
+rules:
+  - rule: The loop gives every agent of a work the environment variable AGENT_BROWSER_SESSION set to the work's id, so each work has its own browser and two works never share a page.
+    scenarios:
+      - happy: An agent of work dog-list runs a shell command; AGENT_BROWSER_SESSION is dog-list there.
+      - happy: Agents of two works see two different values.
+  - rule: "The QA and reviewer briefs say: for a story with a page, start the app, use the page with the agent-browser command (open, snapshot -i, fill, click, eval), and judge what a person would see; the reviewer fails a story whose page does not do what the story says even when its tests pass."
+    scenarios:
+      - happy: The reviewer's brief and QA's brief each name agent-browser and say when to use it.
+  - rule: When a work ends, done or stopped, the loop closes its browser session (agent-browser close with that session) and never fails the work if the command is missing.
+    scenarios:
+      - happy: A work ends; the close command ran once with the work's id.
+      - fails: agent-browser is not installed; the work still ends as it would have.

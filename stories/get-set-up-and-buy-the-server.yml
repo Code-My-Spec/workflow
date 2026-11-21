@@ -1,0 +1,24 @@
+title: Get set up, and learn what the server is for
+workflow: talk-to-the-chat
+story: >
+  As a customer I want the chat to help me get everything set up and to tell me what I would buy the server for, so I can run the product and decide what to pay for.
+rules:
+  - rule: The chat helps the customer set up how they will run it.
+    scenarios:
+      - happy: The chat asks whether they will install it on their own machine or run it in a Claude Code cloud session, and walks them through the one they pick.
+  - rule: The chat sells the product and the customer buys the server.
+    scenarios:
+      - happy: A customer asks whether we will run their deploys, and the chat explains what the server is and offers it.
+  - rule: Devops and operations are server only, a hard line that is both a technical reason and a selling point.
+    scenarios:
+      - happy: A customer asks the chat to handle their releases, and is told that is part of the server.
+  - rule: The server is the customer's own Hetzner server, and it costs 100 dollars a month.
+    scenarios:
+      - happy: A customer asks what the server is and what it costs, and is told it is their own server on Hetzner at 100 dollars a month, on top of their own model subscription.
+  - rule: The dev team runs only while the customer's machine is on, unless they buy the server. The chat explains this during setup.
+    scenarios:
+      - happy: During setup the chat tells the customer that work stops when their machine is off, and that the server is what keeps it running.
+questions:
+  - Do we host it for customers later? The owner would rather avoid devops.
+  - Can the whole system run in a Claude Code cloud session with the project manager as the agent and the others as subprocesses? Whether a subprocess can use the session's login is unchecked.
+  - How does a customer's project get the loop tooling? The owner pointed at client_utils and said it may be revised.

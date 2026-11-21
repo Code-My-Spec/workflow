@@ -1,0 +1,29 @@
+title: Have one project manager that stays
+workflow: run-the-project-manager
+story: >
+  As the person running the project manager I want one durable project manager on my machine that takes what comes in and hands it to the loops, so that I only ever talk to it and the chat.
+rules:
+  - rule: The project manager is the only agent kept running. Coder, QA and reviewer last only as long as their work.
+    scenarios:
+      - happy: A work finishes and its coder and reviewer are gone, while the project manager is still there.
+  - rule: It is called the project manager. A main agent is not part of the product.
+    scenarios:
+      - happy: The person is told they are talking to the project manager.
+  - rule: It has little power and is not given more. It hands work in, hands a decision in, and looks at a work.
+    scenarios:
+      - happy: The project manager is asked what is running and answers by looking, with no authority beyond it.
+  - rule: It owns a local copy and several worktrees, and can read, write and run commands in each.
+    scenarios:
+      - happy: It reads a file in one worktree and runs a command in another.
+  - rule: It takes issues as they come in and triages them.
+    scenarios:
+      - happy: A new issue arrives and the project manager decides what to do with it.
+  - rule: It can be run by the service or be a Claude Code or Codex session, and both are supported.
+    scenarios:
+      - happy: The same chat message works whichever kind is behind it.
+questions:
+  - How many works may be in flight at once?
+  - Is the project manager told when a work finishes, waits or stops, and what does it do then?
+  - Can a person say something to a running agent through the project manager?
+  - Should the manager's long conversation be trimmed?
+  - Does the project manager decide the priority of waiting work, or is there a queue?

@@ -1,0 +1,19 @@
+id: "rejection-reaches-the-coder"
+kind: "issue"
+title: An owner's rejection note is lost when an earlier step fails first
+text: |-
+  Where: the workflow project (`workflow` directory): Workflow.current/2, which takes the first step not done, and the way a decision is kept by tree. Tests go beside the existing ones.
+
+  Fault: on the auction's journey `three-sides`, the owner rejected the demo with a note at 16:08. The coder never saw the note. The main branch had moved since the journey's last certify, so the walk reached `certify` before `approve`. Certify failed on the merge and sent the coder only the merge failure. The coder merged the main branch, the tree changed, and the rejection, kept under the old tree, was gone. The journey went through review and demo again and came back to the owner unchanged at 16:18, asking for the same decision.
+
+  Cause: `Workflow.current/2` takes the first step not done, and a decision is kept by tree. So an owner's rejection is lost whenever an earlier step fails first, or the tree moves before the coder reads it.
+
+  Fix: an owner's rejection note reaches the coder, whatever else the walk finds first, and the owner is not asked for that decision again until the coder has answered it.
+
+  How: make the smallest change that does it.
+
+  Check: add a test that reproduces the fault (reject with a note, then a certify failure at the same tree) and fails without the fix, plus a test for each other criterion.
+criteria:
+  - "After the owner rejects a work's demo with a note, and certify then fails at the same tree, the coder's next turn gets the rejection note as well as the certify failure."
+  - "An owner's rejection note is still given to the coder after the tree moves (for example, after the coder merges the main branch), until the coder has answered it."
+  - "A work whose rejection the coder has not yet answered does not wait on the owner for the same decision again."

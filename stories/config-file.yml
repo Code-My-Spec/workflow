@@ -1,0 +1,19 @@
+id: "config-file"
+kind: "story"
+text: |-
+  Who it is for: whoever runs the loop service on a box.
+
+  Where: the workflow project (`workflow` directory), in how the service boots and gets its configuration. Tests go beside the existing ones.
+
+  Problem: the service's manager and recipients settings can only be given with -e code on the command line. A plain start has no manager, so POST /manager answers 404.
+
+  Wanted: the service starts with no -e code. At boot it reads its manager and recipients settings from a JSON file. With no file, it starts and works as it does today. A file that is not valid JSON stops the boot with a message that names the file.
+
+  The request does not say where the file lives or how its keys are named. Use the service's existing manager and recipients settings as they are, choose the file's path to fit where the service already keeps its own files, and write the path and an example file down where a person starting the service will find it.
+
+  Check: add tests beside the existing ones for each outcome below.
+criteria:
+  - "After a plain start with a config file that names a manager, POST /manager answers instead of returning 404."
+  - "After a plain start with recipients in the config file, a say to a recipient named there is delivered according to its kind."
+  - "With no config file, the service starts and works as it does today."
+  - "A config file that is not valid JSON stops the boot with a message that names the file."

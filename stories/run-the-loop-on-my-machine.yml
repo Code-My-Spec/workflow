@@ -1,0 +1,24 @@
+title: Run the loop on my machine with no server
+workflow: run-the-project-manager
+story: >
+  As the person running the project manager I want to start the loop on any checkout of my project with no server in the way, so that I can put real work through it today.
+rules:
+  - rule: The loop runs on a checkout with nothing but the checkout. If it cannot run on live code, it is not simple enough.
+    scenarios:
+      - happy: The loop is started on a plain checkout and an issue goes through it.
+  - rule: It is reached through an endpoint, not a command line task.
+    scenarios:
+      - happy: A person hands a work in with an HTTP request and reads its state the same way.
+  - rule: Each work gets its own checkout, a worktree on its own branch, that is removed when the work is done.
+    scenarios:
+      - happy: Two works run at the same time in two worktrees and both are removed afterwards.
+  - rule: Everything that decides the next step is read from the checkout and the results kept with it. No work state is stored anywhere else.
+    scenarios:
+      - happy: The loop is restarted and works out where each work stands from the checkout.
+  - rule: Handing in a work never needs a server.
+    scenarios:
+      - happy: A story is handed in from a laptop with no connection to the server.
+questions:
+  - Can the loop run entirely inside a Claude Code cloud session, with the project manager as the agent and the others as subprocesses?
+  - The loop lives in a small project inside the repository. Does it stay there or move to its own repository?
+  - Should the project manager build and tear down its own working copy per task, as the owner always intended?

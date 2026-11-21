@@ -1,0 +1,26 @@
+title: Keep what the agents prove as plain facts
+workflow: run-the-project-manager
+story: >
+  As the person running the project manager I want everything the agents prove kept as plain files, so that I can read it, send it elsewhere or throw it away.
+rules:
+  - rule: Evidence is only facts. It sits in the repository, and syncing it elsewhere is done later and is optional.
+    scenarios:
+      - happy: A reviewer finds the facts as files in the repository with no logic attached.
+  - rule: Analysis results are SARIF files in a directory named for the tree they describe, one file per analyzer, with a metadata file holding the actual command line each analyzer ran with, and the latest run wins.
+    scenarios:
+      - happy: After a run, the directory for that tree holds a SARIF file per analyzer and a metadata file listing the commands.
+  - rule: What runs the analyzers is a recipe in a justfile, called as a lifecycle step. Analysis is no longer built into the server's processes.
+    scenarios:
+      - happy: The certify step calls the project's own recipe and reads the SARIF it wrote.
+  - rule: Test runs store their results the same way by default, keyed by the contents actually tested, and only a full run counts.
+    scenarios:
+      - happy: An agent tests with uncommitted changes and commits exactly that, and the stored result is found.
+      - fails: An agent changes anything after testing and the stored result no longer counts.
+      - fails: An agent runs only one test file, and the result is not accepted as a verdict.
+  - rule: Screens and recordings are evidence too.
+    scenarios:
+      - happy: A journey's demo is kept as a file beside the analysis.
+questions:
+  - Where is evidence aggregated, a bucket for example?
+  - Who may write evidence, and how is a forged record prevented?
+  - Should changes to the project template emit the analysis wiring? The owner said we can change it but not publish it yet.

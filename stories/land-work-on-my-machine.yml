@@ -1,0 +1,16 @@
+title: Land finished work on my machine
+workflow: build-and-land-work
+story: >
+  As the person running the project manager I want finished work merged into my machine's main copy by the loop, so that nothing waits on a remote gate to count as fixed.
+rules:
+  - rule: Promotion is local. It merges the finished work into the main copy, which is the repository's primary checkout (the first worktree of the repository), on whatever branch it has, even when manager.repo names a linked worktree of it.
+    scenarios:
+      - happy: A reviewed fix is merged into the main copy and the team is free.
+  - rule: A fix has two states, fixed once merged locally and resolved once it has left the machine and landed remotely.
+    scenarios:
+      - happy: A merged fix reads as fixed and not as resolved until it has left the machine.
+questions:
+  - Which branch does the merge go to when the running server is also on the main copy? The owner said that only affects us.
+  - What does the loop do when the main copy has uncommitted changes?
+  - Two works finishing together must not collide in the main copy. Is that a rule the owner wants stated?
+  - When a fix fails after it leaves the machine, does the issue reopen?

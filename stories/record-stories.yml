@@ -1,0 +1,17 @@
+title: Record a settled story without building it
+workflow: talk-to-the-chat
+story: >
+  As a person who has just been interviewed about my product, I want everything we settled kept in my repository whether or not it is being built yet, so my intent is on record and nothing waits in a conversation.
+rules:
+  - rule: The manager can record a story without starting work.
+    scenarios:
+      - happy: The manager's record tool, given a story (id, title, story, rules with scenarios, questions, workflow), writes stories/<id>.yml and adds the id to workflows/<workflow>.yml in the project directory of the main copy, commits both there in one commit named for the story, and starts no work.
+      - happy: Recording an id that is already recorded replaces the file with the new content in a new commit, and the workflow file still names the id once.
+      - fails: Recording when the main copy has uncommitted changes to that story's file is refused with a message naming the file, and nothing is committed.
+  - rule: A recorded story is built by handing in its id.
+    scenarios:
+      - happy: hand_in with a kind of story and only the id of a recorded story starts the work with the text and scenarios read from stories/<id>.yml, and the work makes no second story commit when the file is unchanged.
+      - fails: hand_in with only an id that has no recorded file is refused with a message that says so.
+  - rule: Handing in a whole story still works as it does today.
+    scenarios:
+      - happy: hand_in with the full fields writes the story file in the work's first commit, as today.

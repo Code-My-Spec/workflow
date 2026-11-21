@@ -1,0 +1,9 @@
+name: run-the-project-manager
+stories:
+  - run-the-loop-on-my-machine
+  - config-file
+  - have-a-project-manager
+  - manager-tools
+  - message-between-agents
+  - keep-evidence-as-facts
+  - keep-docs-as-plain-files
