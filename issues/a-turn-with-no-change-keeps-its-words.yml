@@ -1,0 +1,14 @@
+id: "a-turn-with-no-change-keeps-its-words"
+kind: "issue"
+title: A coder turn that ends with no change loses its words
+text: |-
+  Fault: when a coder's turn ends with no change, the work's log line reads `fix turn by the coder ended: ` with nothing after it. Nobody can tell why the turn made no change. ci-uploads-evidence was sent back three times this way and its coder's words were never recorded.
+
+  Wanted, as the smallest change that does it: the turn's final text is recorded in the work's log, on that line or right after it, and is shown in the stop note when the work stops (for example, after it is sent back a third time with the same tree and note).
+
+  Check: one test that drives a coder turn ending with no change, with a known final text, through a fake agent. It shows that the work's log holds that text after `fix turn by the coder ended: `, and that the stop note shows it.
+
+  Do not tag or publish anything.
+criteria:
+  - "When a coder's turn ends with no change, the work's log line `fix turn by the coder ended: ` is followed by that turn's final text"
+  - "When a work stops after turns that ended with no change, its stop note shows the last such turn's final text"
