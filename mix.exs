@@ -46,6 +46,7 @@ defmodule Workflow.MixProject do
        git: "https://github.com/Code-My-Spec/alloy_claude_code.git", branch: "windows-spawn"},
       {:bandit, "~> 1.5"},
       {:jason, "~> 1.2"},
+      {:req, "~> 0.5"},
       {:slipstream, "1.2.2"}
     ]
   end

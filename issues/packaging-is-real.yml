@@ -1,0 +1,20 @@
+id: "packaging-is-real"
+kind: "issue"
+title: The packaging recipe and formula are not exact
+text: |-
+  Fault: packaging/README.md and packaging/codemyspec-loop.rb don't give an exact, working recipe. A person can't build the brew package at version 3.0 from them, and a new user installing it isn't told what else they need.
+
+  Wanted, as the smallest change that does it:
+  1. The justfile gets a `package` recipe. `just package` builds the prod release, makes the darwin-arm64 tarball from it, and prints the tarball's path and its sha256.
+  2. packaging/codemyspec-loop.rb becomes an exact Homebrew formula. Its url and sha256 are the only two lines a person has to edit after a build. It declares depends_on for git and just. It installs the release and exposes the `workflow` command. Its caveats tell the user to run `workflow sign-in` and to install Claude Code (the `claude` command), because brew doesn't provide it.
+  3. packaging/README.md describes exactly those steps: run `just package`, copy the printed sha256 and the tarball's url into the formula, and hand off. It matches the justfile and the formula word for word on command names and file names.
+  4. The top of the repository's README gets an install section: brew install, then `workflow sign-in`, then install Claude Code.
+
+  Do not publish anything, push tags, or touch any tap. The owner does those.
+
+  Check: one test that reads the justfile, the formula and the README files. It shows that the justfile has a `package` recipe that builds the prod release and the darwin-arm64 tarball and prints a sha256. It shows that the formula has url and sha256 as its only placeholders, depends_on git and just, and caveats naming `workflow sign-in` and Claude Code. It shows that README.md opens with an install section.
+criteria:
+  - "`just package` builds the prod release and the darwin-arm64 tarball and prints the tarball's sha256"
+  - "The formula's url and sha256 are its only placeholders, and it declares depends_on for git and just"
+  - "The formula's caveats tell the user to run `workflow sign-in` and to install Claude Code"
+  - "README.md starts with an install section, and packaging/README.md gives the exact build-and-fill-in steps"

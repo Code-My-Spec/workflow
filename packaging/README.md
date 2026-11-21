@@ -18,7 +18,8 @@ It is built for the architecture and macOS of the machine that builds it.
 ## Before using it
 
 - The `claude` CLI installed and signed in (`claude` once, interactively).
-- The CodeMySpec harness signed in (the loop reads its sign-in file in `~/.codemyspec`).
+- The loop signed in to its server: `codemyspec-loop sign-in` (or `mix workflow.sign_in`),
+  once `config.json` names the server. It keeps its sign-in in `~/.codemyspec`.
 - `~/.workflow/config.json`, for example:
 
       {

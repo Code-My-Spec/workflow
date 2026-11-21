@@ -1,0 +1,13 @@
+id: "first-run-says-what-is-missing"
+kind: "issue"
+title: The loop does not say when claude, git or just is missing
+text: |-
+  Fault: when the loop starts on a machine where `claude`, `git` or `just` is not on PATH, it says nothing. It fails later, in a way that doesn't point to the cause. A new brew user can't tell what is missing.
+
+  Wanted, as the smallest change that does it: at start, the loop checks PATH for `claude`, `git` and `just`. For each one that is missing, it logs exactly one line. The line names the program and says how the loop will fail without it: without claude, no agent turn can run; without git, no work can be checked out or landed; without just, a project's checks and commands can't run. The boot carries on either way. When all three are present, no such line is logged.
+
+  Check: one test that runs the start-up check with a PATH lacking some of the three programs and captures the log. It shows one line for each missing program naming it, no line for the ones that are present, and that the check returns without stopping the boot.
+criteria:
+  - "At start, for each of claude, git and just not on PATH, the loop logs one line naming it and how the loop will fail without it"
+  - "The loop's boot continues when any of them is missing"
+  - "No such line is logged for a program that is on PATH"

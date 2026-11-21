@@ -12,9 +12,8 @@ defmodule Workflow.Server do
   Started only when `config.json` has a `"server"` object:
   `{"url": "wss://host/socket/websocket", "project_id": "..."}`, and optionally
   `"state_dir"` (default `$CMS_STATE_DIR`, else `~/.codemyspec`). The credential
-  is the one the harness already holds for that server (its device sign-in,
-  `harness_oauth_<sha256 of the server's base URL>.json` in the state dir): read,
-  never written, and re-read at every reconnect. Sign in with the harness first.
+  is the loop's own device sign-in (`workflow sign-in`, see `Workflow.SignIn`),
+  re-read at every reconnect and refreshed before dialing when about to expire.
   """
   use Slipstream
 
@@ -101,18 +100,20 @@ defmodule Workflow.Server do
     end
   end
 
-  # Each retry dials with the credential as it is now: the harness refreshes it.
+  # Each retry dials with the credential as it is now, refreshed if expiring.
   @impl Slipstream
   def handle_disconnect(_reason, socket) do
     config = %{socket.channel_config | uri: URI.parse(uri(socket.assigns.server))}
     reconnect(%{socket | channel_config: config})
   end
 
-  defp uri(%{"url" => url} = server) do
-    case token(server) do
+  @doc "The URL to dial: the server's, with a token from `Workflow.SignIn.token/2` (refreshed if expiring)."
+  @spec uri(map(), Workflow.SignIn.http()) :: String.t()
+  def uri(%{"url" => url} = server, http \\ &Workflow.SignIn.post/2) do
+    case Workflow.SignIn.token(server, http) do
       nil ->
         Logger.warning(
-          "[Workflow.Server] no unexpired sign-in for #{base(url)}; sign the harness in"
+          "[Workflow.Server] no sign-in for #{Workflow.SignIn.base(url)}; run `workflow sign-in`"
         )
 
         url
@@ -121,26 +122,5 @@ defmodule Workflow.Server do
         url <>
           if(String.contains?(url, "?"), do: "&", else: "?") <> URI.encode_query(token: token)
     end
-  end
-
-  # The harness's file for this server (its `HarnessOAuth`), read in place.
-  defp token(%{"url" => url} = server) do
-    dir = server["state_dir"] || System.get_env("CMS_STATE_DIR") || "~/.codemyspec"
-    hash = :crypto.hash(:sha256, base(url)) |> Base.encode16(case: :lower)
-
-    with {:ok, body} <- File.read(Path.expand(Path.join(dir, "harness_oauth_#{hash}.json"))),
-         {:ok, %{"access_token" => "" <> token, "expires_at" => expires}} <- Jason.decode(body),
-         true <- is_integer(expires) and expires > System.system_time(:second) + 30 do
-      token
-    else
-      _none -> nil
-    end
-  end
-
-  # The server's base URL as the harness names it: http(s), no path.
-  defp base(url) do
-    uri = URI.parse(url)
-    scheme = if uri.scheme == "wss", do: "https", else: "http"
-    to_string(%URI{scheme: scheme, host: uri.host, port: uri.port})
   end
 end
