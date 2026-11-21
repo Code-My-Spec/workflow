@@ -5,12 +5,19 @@
 On an Apple silicon Mac:
 
     brew install codemyspec-loop      # from the tap that holds the formula
-    workflow sign-in                  # once ~/.workflow/config.json names the server
+    workflow init --repo /path/to/repo [--plugin DIR] [--server URL --project ID]
+    workflow sign-in                  # only when init was given a server
+
+`workflow init` writes `~/.workflow/config.json` and refuses to overwrite one.
 
 Then install Claude Code (the `claude` command), which brew does not provide,
 and run `claude` once to sign in:
 
     curl -fsSL https://claude.ai/install.sh | bash
+
+Then start the service:
+
+    brew services start codemyspec-loop
 
 How the package is built: `packaging/README.md`.
 
