@@ -247,7 +247,8 @@ defmodule Workflow.Parts do
     args = ["log", "-p", "--no-merges", "--format=", "#{main}..HEAD", "--", test]
 
     with true <- File.dir?(root),
-         {log, 0} <- System.cmd("git", args, cd: root, stderr_to_stdout: true) do
+         {log, 0} <-
+           Workflow.Checkout.cmd("git", args, [cd: root, stderr_to_stdout: true], &System.cmd/3) do
       added =
         log
         |> String.split("\n")
