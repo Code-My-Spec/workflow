@@ -4,6 +4,8 @@ defmodule Workflow.Application do
 
   @impl true
   def start(_type, _args) do
+    check_path(System.get_env("PATH", ""))
+
     # Its own settings, from `config.json` beside the works (`Workflow.ConfigFile`).
     case Workflow.ConfigFile.load() do
       :ok ->
@@ -14,6 +16,27 @@ defmodule Workflow.Application do
         Logger.error(message)
         {:error, message}
     end
+  end
+
+  @needed [
+    {"claude", "no agent turn can run"},
+    {"git", "no work can be checked out or landed"},
+    {"just", "a project's checks and commands can't run"}
+  ]
+
+  @doc """
+  Logs one line for each of `claude`, `git` and `just` not found on `path`,
+  saying how the loop fails without it. Returns `:ok` either way.
+  """
+  def check_path(path) do
+    require Logger
+
+    for {program, without} <- @needed,
+        :os.find_executable(String.to_charlist(program), String.to_charlist(path)) == false do
+      Logger.warning("[Workflow] `#{program}` is not on PATH: without it, #{without}")
+    end
+
+    :ok
   end
 
   defp start_tree do
