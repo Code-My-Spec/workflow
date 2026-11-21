@@ -1,0 +1,21 @@
+id: "loop-signs-itself-in"
+kind: "issue"
+title: The loop cannot sign a new user in
+text: |-
+  Fault: Workflow.Server (lib/workflow/server.ex, token/1) only reads the credential file ~/.codemyspec/harness_oauth_<sha256 of server base url>.json. A program that no longer exists used to write that file. So a new user can never connect, and when a token is expiring the loop only warns 'sign the harness in'.
+
+  The server still offers the device grant:
+  - POST /oauth/register registers a dynamic client with grant types device_code and refresh_token.
+  - POST /oauth/device/code takes form fields client_id and device_id. It returns the device and user code pair and the verification URL.
+  - POST /oauth/token takes grant_type urn:ietf:params:oauth:grant-type:device_code with device_code, or grant_type refresh_token.
+
+  Wanted, as the smallest change that does it:
+  1. A release command `workflow sign-in`, and the same as a mix task. It registers a client once (it reuses the client_id and client_secret if the file already has them). It prints the verification URL and the user code, then polls /oauth/token until the user approves or denies. It writes the credential to the same file name with the JSON keys the loop already reads: access_token, refresh_token, expires_at, client_id, client_secret. The file mode is 0600.
+  2. Before dialing, the loop refreshes an expiring token itself with grant_type refresh_token and rewrites the file. It no longer warns 'sign the harness in'.
+  3. No token (access or refresh) or client secret ever appears in a log or in printed output.
+
+  Check: one test that drives the code through a fake HTTP function, with no network. The test shows that sign-in writes the file with those five keys at mode 0600, that an expiring token is refreshed before dialing, and that no token appears in the captured log or output.
+criteria:
+  - "`workflow sign-in` (and its mix task) registers a client, prints the verification URL and user code, polls until approved, and writes ~/.codemyspec/harness_oauth_<sha256 of base url>.json with access_token, refresh_token, expires_at, client_id, client_secret at file mode 0600"
+  - "Before dialing, the loop refreshes an expiring token with the refresh_token grant and saves the new credential instead of warning 'sign the harness in'"
+  - "No access token, refresh token or client secret appears in any log line or printed output"
