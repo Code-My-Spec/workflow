@@ -12,9 +12,11 @@ defmodule Workflow.Conversation do
   @spec path(String.t() | nil, String.t()) :: String.t() | nil
   def path("" <> dir, name) do
     if File.dir?(dir) do
-      case System.cmd("git", ~w(rev-parse --path-format=absolute --git-common-dir),
-             cd: dir,
-             stderr_to_stdout: true
+      case Workflow.Checkout.cmd(
+             "git",
+             ~w(rev-parse --path-format=absolute --git-common-dir),
+             [cd: dir, stderr_to_stdout: true],
+             &System.cmd/3
            ) do
         {git_dir, 0} ->
           Path.join([String.trim(git_dir), "workflow", "conversations", "#{name}.jsonl"])

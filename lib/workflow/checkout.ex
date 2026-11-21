@@ -910,7 +910,28 @@ defmodule Workflow.Checkout do
     end
   end
 
-  # `System.cmd/3`, or what a test puts in its place.
-  defp cmd(command, args, opts),
-    do: Application.get_env(:workflow, :cmd, &System.cmd/3).(command, args, opts)
+  @doc """
+  The one place the loop runs a command (`just`, git) in a project: `run`
+  (`System.cmd/3`, or what a test puts in its place), with the release's own
+  variables (RELEASE_*, MIX_*, ERL_*, ROOTDIR, BINDIR, EMU, PROGNAME) taken out
+  of the child's environment, so the project's commands use its own runtime.
+  Every other variable passes through, and any `:env` the caller gives still applies.
+  """
+  @spec cmd(String.t(), [String.t()], keyword(), function()) ::
+          {Collectable.t(), non_neg_integer()}
+  def cmd(command, args, opts, run \\ Application.get_env(:workflow, :cmd, &System.cmd/3)) do
+    given = Keyword.get(opts, :env, [])
+    set = MapSet.new(given, fn {name, _} -> to_string(name) end)
+
+    unset =
+      for {name, _} <- System.get_env(), release_var?(name), name not in set, do: {name, nil}
+
+    opts = Keyword.put(opts, :env, unset ++ given)
+    run.(command, args, opts)
+  end
+
+  defp release_var?(name),
+    do:
+      name in ~w(ROOTDIR BINDIR EMU PROGNAME) or
+        String.starts_with?(name, ["RELEASE_", "MIX_", "ERL_"])
 end
