@@ -12,10 +12,16 @@ copy-setup:
 copy-teardown:
 
 run dir:
+    # The .app keeps the version (git describe) it was first built at; a new commit
+    # alone does not rewrite it, so it is written afresh before the tests read it.
+    mix compile.app --force
     mix workflow.sarif "{{dir}}/exunit.sarif" -- mix test
 
 certify dir:
     mix workflow.sarif "{{dir}}/compiler.sarif" -- mix compile --warnings-as-errors
+    # The .app keeps the version (git describe) it was first built at; a new commit
+    # alone does not rewrite it, so it is written afresh before the tests read it.
+    mix compile.app --force
     mix workflow.sarif "{{dir}}/exunit.sarif" -- mix test
 
 # Build the prod release and its Homebrew tarball (on an Apple silicon Mac), then
