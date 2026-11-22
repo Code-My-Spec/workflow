@@ -6,27 +6,18 @@ the `workflow` command.
 
 ## Build (Apple silicon Mac, with Elixir and just installed)
 
-1. Check out the commit tagged `v3.0.0`, so the release reports version 3.0.0.
-2. In the repository's root, run, giving the CodeMySpec app's repository:
+Check out the commit tagged `v<version>`, then, in the repository's root, run,
+giving the version and the CodeMySpec app's repository:
 
-       just package /path/to/code_my_spec-phx-new-generator
+    just release <version> <app>
 
-   It copies that repository's `plugins/phoenix` (into the release as
-   `plugin/`) and `plugins/claude/directory/skills/interview/SKILL.md` (as
-   `instructions.md`), which `workflow init` names by default. With no path, a
-   path that does not exist, or a path missing either one, it stops, names what
-   is missing, and builds no tarball. Check both for secrets, personal paths,
-   emails and names before you build, since the tarball is public.
-
-   It builds the prod release, makes
-   `_build/codemyspec-loop-darwin-arm64.tar.gz` from it, and prints the
-   tarball's path (`tarball: ...`) and its sha256 (`sha256: ...`).
-3. Upload `codemyspec-loop-darwin-arm64.tar.gz` where Homebrew can download it.
-4. In `packaging/codemyspec-loop.rb`, set the two placeholder lines and
-   nothing else:
-   - `url`: the uploaded tarball's url.
-   - `sha256`: the sha256 that `just package` printed.
-5. Hand `packaging/codemyspec-loop.rb` off to the tap that holds the formula.
+It refuses unless the version is N.N.N and HEAD is tagged `v<version>` (it
+never tags). It runs `just package <app>`, which copies the app's
+`plugins/phoenix` and interview skill into the release and builds
+`_build/codemyspec-loop-darwin-arm64.tar.gz` (the tarball is public: it stops on
+personal paths, emails and keys). It uploads the tarball as GitHub release
+`v<version>`, fills `packaging/codemyspec-loop.rb`'s version, `url` and
+`sha256` in, and pushes that formula to Code-My-Spec/homebrew-tap.
 
 The tarball is built for the architecture and macOS of the machine that builds it.
 
