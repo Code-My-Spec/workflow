@@ -29,11 +29,15 @@ defmodule Workflow.Router do
   plug(:dispatch)
 
   post "/work/run" do
-    with %{"kind" => kind, "id" => "" <> _} = work <- conn.body_params,
+    with %{"kind" => kind, "id" => "" <> id} = work <- conn.body_params,
+         :ok <- plain(id),
          true <- checkout?(work),
          true <- kind in Workflow.Run.kinds() do
       answer(conn, work, Workflow.Run.start(work))
     else
+      {:refused, why} ->
+        reply(conn, 422, %{error: why})
+
       _other ->
         kinds = Enum.join(Workflow.Run.kinds(), ", ")
 
@@ -48,15 +52,25 @@ defmodule Workflow.Router do
   defp checkout?(%{"repo" => "" <> _}), do: true
   defp checkout?(_not_named), do: false
 
+  # A work id or inbox name is a plain name, or nothing is made from it.
+  defp plain(name) do
+    case Workflow.Checkout.refused(name) do
+      nil -> :ok
+      why -> {:refused, why}
+    end
+  end
+
   # Where a work is, with nothing run: GET /works/demo-1?kind=issue&root=/path/to/checkout
   get "/works/:id" do
     conn = fetch_query_params(conn)
 
-    with %{"kind" => kind, "root" => "" <> _} = asked <- conn.query_params,
+    with :ok <- plain(id),
+         %{"kind" => kind, "root" => "" <> _} = asked <- conn.query_params,
          true <- kind in Workflow.Run.kinds(),
          %{} = seen <- Workflow.Run.look(Map.put(asked, "id", id)) do
       reply(conn, 200, seen)
     else
+      {:refused, why} -> reply(conn, 422, %{error: why})
       :none -> reply(conn, 422, %{error: "that root is not a git checkout"})
       _other -> reply(conn, 422, %{error: "name the work's kind and the root of its checkout"})
     end
@@ -71,10 +85,14 @@ defmodule Workflow.Router do
     root = asked["root"] || (asked["repo"] && Workflow.Checkout.root(asked["repo"], asked["id"]))
 
     with %{"id" => "" <> id, "say" => "" <> said} <- asked,
+         :ok <- plain(id),
          true <- checkout?(asked),
          :ok <- Workflow.Checkout.say_to(root, id, said) do
       reply(conn, 200, %{said: said})
     else
+      {:refused, why} ->
+        reply(conn, 422, %{error: why})
+
       :none ->
         reply(conn, 404, %{error: "that work has no checkout"})
 
@@ -94,6 +112,7 @@ defmodule Workflow.Router do
     with true <- conn.remote_ip in [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}] || :forbidden,
          true <- owners_word?(Application.get_env(:workflow, :go), word),
          %{"kind" => "provision", "id" => "" <> id} <- work,
+         :ok <- plain(id),
          "" <> _ <- root do
       Workflow.Checkout.record(root, id, "go", %{"status" => "go"})
       answer(conn, work, Workflow.Run.start(work))
@@ -110,6 +129,9 @@ defmodule Workflow.Router do
 
       :wrong_word ->
         reply(conn, 403, %{error: "the go needs the owner's word: {\"id\", \"word\"}"})
+
+      {:refused, why} ->
+        reply(conn, 422, %{error: why})
 
       _other ->
         reply(conn, 422, %{error: "name a provision's id and its root or repo"})
@@ -272,7 +294,12 @@ defmodule Workflow.Router do
   defp rpc(id, "tools/call", %{"name" => "say"} = params, _tools) do
     case params["arguments"] do
       %{"say" => "" <> text} = asked ->
-        told(id, Workflow.Messages.say(asked["to"] || "manager", asked["from"] || "chat", text))
+        to = asked["to"] || "manager"
+
+        case plain(to) do
+          :ok -> told(id, Workflow.Messages.say(to, asked["from"] || "chat", text))
+          {:refused, why} -> told(id, {:error, why})
+        end
 
       _other ->
         told(id, {:error, "say something: {\"say\": \"...\"}"})
@@ -282,7 +309,11 @@ defmodule Workflow.Router do
   # The messages kept for a name (chat by default) since it last asked, now read.
   defp rpc(id, "tools/call", %{"name" => "inbox"} = params, _tools) do
     name = (is_map(params["arguments"]) && params["arguments"]["name"]) || "chat"
-    told(id, {:ok, Jason.encode!(Workflow.Messages.unread(name))})
+
+    case plain(name) do
+      :ok -> told(id, {:ok, Jason.encode!(Workflow.Messages.unread(name))})
+      {:refused, why} -> told(id, {:error, why})
+    end
   end
 
   # One of the manager's own tools, run as the service-run manager runs it.

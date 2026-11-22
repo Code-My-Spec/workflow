@@ -166,14 +166,31 @@ defmodule Workflow.Manager do
   """
   @spec tools(map()) :: [Alloy.Tool.Inline.t()]
   def tools(manager),
-    do: [
-      hand_in(manager),
-      record(manager),
-      decide(manager),
-      look(manager),
-      told(manager),
-      stop(manager)
-    ]
+    do:
+      Enum.map(
+        [
+          hand_in(manager),
+          record(manager),
+          decide(manager),
+          look(manager),
+          told(manager),
+          stop(manager)
+        ],
+        &plain_id/1
+      )
+
+  # A tool given an id that is not a plain name refuses it before anything is done.
+  defp plain_id(tool) do
+    %{
+      tool
+      | execute: fn input, context ->
+          case is_map_key(input, "id") && Checkout.refused(input["id"]) do
+            "" <> why -> {:ok, why}
+            _plain -> tool.execute.(input, context)
+          end
+        end
+    }
+  end
 
   # Stops a work for good: no agent runs on it again and it never promotes; its
   # checkout and branch are taken away, and its story or issue file is removed
