@@ -1,27 +1,4 @@
 id: "package-carries-the-plugin"
 kind: "issue"
-title: A packaged install cannot init without the app's repository
-text: |-
-  Fault: a person on another machine installs the brew package and runs `workflow init --repo <checkout>`. Today init needs --plugin DIR, and config's `instructions` path has to be set too. Both point at folders in the CodeMySpec app's repository on the owner's Mac, which that person does not have. So a packaged install cannot be set up from the package alone.
-
-  The sources today, in the app's repository (for the owner's machine, /Volumes/X10 Pro/github/code_my_spec-phx-new-generator):
-  - the plugin: plugins/phoenix
-  - the instructions: plugins/claude/directory/skills/interview/SKILL.md
-  The owner ruled that the plugin's home is the app's repository. Do not move it or copy it into this repository's source.
-
-  Wanted, as the smallest honest change:
-  1. `just package` takes the app repository's path as an argument. It copies the plugin folder and the instructions file from there into the release, so the tarball carries them. When the path is not given, does not exist, or lacks either source, it fails loudly, names what is missing, and builds no tarball.
-  2. At run time the release finds its packaged plugin and instructions relative to the release itself, not through any fixed machine path.
-  3. `workflow init` with no --plugin writes the packaged plugin and the packaged instructions file into config.json. An explicit --plugin still wins. Everything else init does (its validation, its refusal to overwrite, its printed next steps) stays as it is.
-  4. README.md's install section is updated: brew install, `workflow init --repo <checkout>` (no --plugin needed), `workflow sign-in`, start the service. packaging/README.md shows the new `just package <path>` argument.
-
-  Before anything goes in a public tarball: scan everything that gets copied in (the plugin folder and the instructions file) for secrets, tokens and keys, personal paths (such as /Users/... or /Volumes/...), email addresses, and customer or person names. If anything is found, do NOT ship it and do not edit the app's repository. Stop and list each finding (file and line) in the decision note so the owner can decide.
-
-  Check: tests for the init default (no --plugin uses the packaged copies found relative to the release; --plugin still wins) and for `just package` failing on a missing path, each in a temporary works dir and never the real ~/.workflow. Then prove it end to end and report the output in the decision note: build the package with the app repository's path, unpack the tarball in a temp folder, set HOME to a temp folder, run the unpacked `workflow init --repo <a temp git checkout>` with only --repo, and show that the written config.json's plugin and instructions paths name files that exist inside the unpacked package.
-
-  Do not tag, publish, push, or touch any tap.
-criteria:
-  - "`just package` given the app repository's path copies its plugins/phoenix folder and plugins/claude/directory/skills/interview/SKILL.md into the release, so the darwin-arm64 tarball carries a default plugin and a default instructions file"
-  - "`just package` with no path, a path that does not exist, or a path missing either source fails with a message naming what is missing, and builds no tarball"
-  - "`workflow init --repo <checkout>` with no --plugin, run from an unpacked package, writes a config.json whose plugin and instructions paths name files that exist inside that unpacked package, found relative to the release at run time"
-  - "`workflow init` given --plugin DIR still writes that DIR as the plugin, and README.md's install section describes installing and running init with only --repo"
+text: ""
+criteria: []
