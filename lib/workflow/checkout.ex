@@ -861,6 +861,12 @@ defmodule Workflow.Checkout do
           _no_recipe -> %{"status" => "passed", "note" => "no ci recipe"}
         end
 
+      # A green run's evidence goes up before any later run can prune this checkout.
+      if verdict["status"] == "passed" and verdict["dir"] do
+        server = Application.get_env(:workflow, :server)
+        Workflow.Evidence.upload(verdict["dir"], Path.join(at, dir || "."), commit, server)
+      end
+
       compared(git_dir, commit, verdict)
     after
       prune_ci(main_copy, Path.dirname(at), commit)

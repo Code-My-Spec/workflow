@@ -371,9 +371,11 @@ defmodule Workflow.Manager do
         flying = length(Path.wildcard(Path.join(Run.works_dir(), "*.json")))
 
         cond do
+          # Refused before anything is recorded or started: nothing is left behind.
           flying >= cap ->
             {:ok,
-             "Refused: #{flying} works are in flight and the cap is #{cap}. Hand it in later."}
+             "Refused: #{flying} works are in flight, at the cap of #{cap}. Nothing was " <>
+               "started and nothing is queued; hand it in again when a slot frees."}
 
           # Stopped for good: nothing of it, its file included, comes back.
           Checkout.cancelled?(manager["repo"], input["id"]) ->
