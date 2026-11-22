@@ -1,0 +1,30 @@
+id: "the-loop-does-no-deploys"
+kind: "issue"
+title: The loop carries deploy machinery that belongs in CodeMySpec
+text: |-
+  Fault: the loop carries deploy machinery. The owner decided (asked directly) that the loop is the workflow only, and that deploys and prod live in CodeMySpec, not here. His words: "only the workflow should be in the loop all the tools should either be in code my spec or in the devops skill". On cutting the deploy machinery: "Cut it".
+
+  Cut from the loop, together with their tests, docs and stories text:
+  1. The provision work kind (lib/workflow/provision.ex), its place in Run.kinds(), and its templates.
+  2. The "deploy" config key, Run's deploy/3 and deploying/2, and everything only they use.
+  3. The "go" config key, POST /work/go in the router (and the owner's-word check only it uses), and Checkout's deployed / since_deployed / prod-deployed file.
+  4. The manager tool schemas' `target` property, `provision` from every kind enum, and any manager text about provisioning, deploying or go.
+
+  Keep:
+  - DevOps setup stays possible as an ordinary work: an issue or story that the coder does with the devops skill and CodeMySpec's tools. Add nothing for it.
+  - Everything about ci, certify, review, promote, evidence upload and the server channel stays exactly as it is. The Host check on the local API (LocalOnly) stays.
+
+  An older config must keep working: a config.json that still has "deploy" or "go" must not stop the boot. A missing key means the old rule. When either key is present, log one line saying that key is ignored.
+
+  Rules: before removing anything, grep every caller (lib, test, justfile, README, stories). Smallest change and no new options. Delete tests only when they test exclusively what is cut; never weaken a test of what is kept. Add one small test that fails without the fix: a config.json with "deploy" and "go" boots, logs one ignored line per key, and a work of kind provision is refused. Also show that POST /work/go is now an unknown route.
+
+  Report in the decision note:
+  - the lines removed (git diff --stat totals and per file);
+  - a grep of the repository, except issues/ and notes/, for provision, deploy, go (as a word or key) and prod, with what is left and why each remaining hit stays.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "The loop has no provision work kind: handing in, looking at or deciding a work of kind provision is refused, and the manager's tool schemas offer no provision kind and no `target` property"
+  - "POST /work/go no longer exists: a request to it is answered as an unknown route, and no work moves on"
+  - "A config.json that still holds a \"deploy\" or \"go\" key boots as before, logs one line per such key saying it is ignored, and the loop runs its works without deploying"
+  - "Issues and stories still go through their ci, certify, review and promote steps, with evidence upload and the server channel unchanged"
