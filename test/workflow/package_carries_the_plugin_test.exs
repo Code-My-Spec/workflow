@@ -45,30 +45,30 @@ defmodule Workflow.PackageCarriesThePluginTest do
     rel
   end
 
-  test "package-carries-the-plugin: criterion 3 init with no --plugin writes the packaged plugin and instructions, found relative to the release",
+  # Since packaged-defaults-survive-an-upgrade, init leaves the packaged ones out of
+  # config.json and the loop finds them in the release at each boot.
+  test "package-carries-the-plugin: criterion 3 init with no --plugin leaves the packaged plugin and instructions to the release",
        %{root: root, repo: repo, config: config} do
-    rel = release(root)
+    release(root)
 
     assert {:ok, said} = Workflow.Init.run(["--repo", repo], root)
     written = config |> File.read!() |> Jason.decode!()
 
-    assert written["plugin"] == Path.join(rel, "plugin")
-    assert written["instructions"] == Path.join(rel, "instructions.md")
-    assert File.regular?(Path.join([written["plugin"], ".claude-plugin", "plugin.json"]))
-    assert File.regular?(written["instructions"])
+    refute Map.has_key?(written, "plugin")
+    refute Map.has_key?(written, "instructions")
     assert said =~ "brew services start codemyspec-loop"
   end
 
   test "package-carries-the-plugin: criterion 4 an explicit --plugin still wins over the packaged one",
        %{root: root, repo: repo, config: config} do
-    rel = release(root)
+    release(root)
     mine = plugin(Path.join(root, "mine"))
 
     assert {:ok, _said} = Workflow.Init.run(["--repo", repo, "--plugin", mine], root)
     written = config |> File.read!() |> Jason.decode!()
 
     assert written["plugin"] == mine
-    assert written["instructions"] == Path.join(rel, "instructions.md")
+    refute Map.has_key?(written, "instructions")
   end
 
   test "package-carries-the-plugin: criterion 4 README's install section runs init with only --repo" do
