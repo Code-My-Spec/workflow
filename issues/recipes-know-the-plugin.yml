@@ -1,0 +1,22 @@
+id: "recipes-know-the-plugin"
+kind: "issue"
+title: Recipes the loop runs in a project are not told where the plugin is
+text: |-
+  Fault: the `just` recipes the loop runs in a project are not told which plugin folder the loop is configured with. So a customer project cannot switch to the new evidence writer that ships in the plugin, because its recipes cannot find it. This is one piece of the plan the owner approved, brought forward so a customer project can switch today.
+
+  Wanted, as the smallest change that does it, with no new options:
+  1. Every place Checkout calls `just` to run a recipe (copy-setup, copy-teardown, run, certify, ci, demo, retry; not `just --show` or other lookups) gets the environment variable CODEMYSPEC_PLUGIN set to the plugin folder the loop is configured with, as returned by Workflow.Plugin.dir/0, as an absolute path.
+  2. When no plugin is configured, the variable is not set at all (not set to an empty string).
+  3. Any env a recipe call already passes (extra variables given by its caller) is kept and merged with CODEMYSPEC_PLUGIN.
+  4. The environment scrub in Checkout.cmd/4 (which removes RELEASE_*, MIX_ENV, ERL_*, ROOTDIR, BINDIR, EMU, PROGNAME) stays as it is and must not remove CODEMYSPEC_PLUGIN.
+  5. Nothing else changes.
+
+  Confirm in the code first every place Checkout runs a `just` recipe, and grep every caller. List them in the decision note.
+
+  Check: one test, in a temporary git repo with a justfile whose recipe echoes $CODEMYSPEC_PLUGIN into a file. With a plugin configured, the file holds the configured folder's absolute path. With no plugin configured, the variable is unset. The test must fail without the fix. Keep every existing test passing; don't weaken or delete any.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When a plugin is configured, every `just` recipe the loop runs in a project (copy-setup, copy-teardown, run, certify, ci, demo, retry) gets CODEMYSPEC_PLUGIN set to that plugin folder's absolute path"
+  - "When no plugin is configured, CODEMYSPEC_PLUGIN is not set for those recipes"
+  - "Any env a recipe's call already passes is still passed, merged with CODEMYSPEC_PLUGIN"
