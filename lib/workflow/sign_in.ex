@@ -58,7 +58,7 @@ defmodule Workflow.SignIn do
     with {:ok, client} <- client(server, base, http),
          {:ok, %{"device_code" => "" <> device, "user_code" => "" <> code} = grant} <-
            request(http, base <> "/oauth/device/code",
-             form: Map.put(Map.take(client, ["client_id"]), "device_id", to_string(host))
+             form: Map.put(Map.take(client, ["client_id"]), "device_id", device_id(host))
            ) do
       IO.puts(
         "Open #{grant["verification_uri"] || grant["verification_url"]} and enter the code #{code}"
@@ -99,6 +99,14 @@ defmodule Workflow.SignIn do
       _none ->
         nil
     end
+  end
+
+  # The server takes only a UUID as a device id; this one is the same for a host every time.
+  defp device_id(host) do
+    <<a::binary-8, b::binary-4, c::binary-4, d::binary-4, e::binary-12, _::binary>> =
+      Base.encode16(:crypto.hash(:sha256, to_string(host)), case: :lower)
+
+    Enum.join([a, b, c, d, e], "-")
   end
 
   @doc "The server's base URL: http(s), no path."

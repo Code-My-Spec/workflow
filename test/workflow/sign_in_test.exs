@@ -34,7 +34,8 @@ defmodule Workflow.SignInTest do
 
         {:ok, 201, %{"client_id" => "client-1", "client_secret" => "secret-of-the-client"}}
 
-      {"/oauth/device/code", :form, %{"client_id" => "client-1", "device_id" => "" <> _}} ->
+      {"/oauth/device/code", :form,
+       %{"client_id" => "client-1", "device_id" => <<_::binary-8, "-", _::binary-27>>}} ->
         {:ok, 200,
          %{
            "device_code" => "dev-1",
