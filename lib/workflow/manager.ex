@@ -1,8 +1,8 @@
 defmodule Workflow.Manager do
   @moduledoc """
   The project manager: the one agent that outlives a work. It is told things,
-  one message at a time, and can do five: hand a work in, decide for a work's owner, look at a work, tell a running work something,
-  and stop a work for good. It does not code, review, test or read the
+  one message at a time, and can do six: hand a work in, decide for a work's owner, look at a work, tell a running work something,
+  stop a work for good, and message the person's chat (`message_chat`, over `Workflow.Server`). It does not code, review, test or read the
   repository; a work's own agents do.
 
   It exists only where `:manager` is configured: a map of the `"repo"` its works
@@ -18,6 +18,12 @@ defmodule Workflow.Manager do
   alias Workflow.Agents
   alias Workflow.Checkout
   alias Workflow.Run
+
+  # When the manager messages the person's chat, in its brief and its tool's description.
+  @message_chat_brief "Use message_chat to reach the person's chat when the person must know " <>
+                        "or decide something now: a question only they can answer, a stopped " <>
+                        "work, a red that needs them. It is not for routine progress, which " <>
+                        "the chat collects with say."
 
   @brief """
   You are the project manager for one repository. You are told things; you do not go looking.
@@ -48,6 +54,8 @@ defmodule Workflow.Manager do
 
   Nobody waits on your answer to a message from the loop: the owner reads it later, so say \
   what you did or exactly what a person must do.
+
+  #{@message_chat_brief}
 
   A push the box refuses or fails is a failure of this app, and yours to act on at once: hand \
   in an issue with the failure's text, without asking anyone. The loop is not a person and will \
@@ -175,7 +183,7 @@ defmodule Workflow.Manager do
   defp prompt?(_message), do: false
 
   @doc """
-  The manager's own tools (hand_in, decide, look, tell, stop) for the given
+  The manager's own tools (hand_in, decide, look, tell, stop, message_chat) for the given
   manager settings: what its turns run with, and what POST /mcp/manager offers.
   """
   @spec tools(map()) :: [Alloy.Tool.Inline.t()]
@@ -187,7 +195,8 @@ defmodule Workflow.Manager do
           decide(manager),
           look(manager),
           told(manager),
-          stop(manager)
+          stop(manager),
+          message_chat()
         ],
         &plain_id/1
       )
@@ -242,6 +251,43 @@ defmodule Workflow.Manager do
       end
     )
   end
+
+  # Sends the person's chat a message over the server line (`Workflow.Server`):
+  # `message` {text} pushed on `loop:<project>`, answered ok {id}.
+  defp message_chat do
+    Alloy.Tool.inline(
+      name: "message_chat",
+      description:
+        "Send a message to the person's chat inbox, unprompted. " <> @message_chat_brief,
+      input_schema: %{
+        type: "object",
+        properties: %{text: %{type: "string"}},
+        required: ["text"]
+      },
+      execute: fn input, _context -> {:ok, chat_sent(input["text"])} end
+    )
+  end
+
+  defp chat_sent("" <> text) do
+    case Workflow.Server.call("message", %{"text" => text}) do
+      {:ok, %{"id" => id}} ->
+        "Delivered to the person's chat, as message #{id}."
+
+      {:error, :no_server} ->
+        "Not delivered: there is no server configured, so nothing was sent."
+
+      {:error, {:no_reply, why}} ->
+        "Not delivered: the server sent no reply (#{inspect(why)})."
+
+      {:error, why} ->
+        "Not delivered: the server refused it: #{inspect(why)}"
+
+      other ->
+        "Not delivered: the server's reply gave no id: #{inspect(other)}"
+    end
+  end
+
+  defp chat_sent(_none), do: "Not delivered: there was no text, so nothing was sent."
 
   # Says something to a running work, as POST /work/say does.
   defp told(manager) do

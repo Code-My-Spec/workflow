@@ -101,8 +101,9 @@ pushes the main copy, the loop pushes `pushed` `{branch, commit}`.
 - `POST /mcp` is the chat's endpoint: it offers only `say` and `inbox`, and
   refuses any other tool as unknown.
 - `POST /mcp/manager` is for whoever acts as the manager: it offers the
-  manager's own tools (`hand_in`, `decide`, `look`, `tell` and
-  `stop`, with the same inputs the service-run manager has) plus `say` and
+  manager's own tools (`hand_in`, `decide`, `look`, `tell`, `stop` and
+  `message_chat`, which sends the person's chat a message over the server
+  line, with the same inputs the service-run manager has) plus `say` and
   `inbox`. Their calls do what the
   service-run manager's tools do, with the `"repo"`, `"project"`, `"cap"` and
   `"agents"` from the manager settings, and answer what those tools answer.
