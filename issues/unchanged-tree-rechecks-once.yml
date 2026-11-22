@@ -1,0 +1,20 @@
+id: "unchanged-tree-rechecks-once"
+kind: "issue"
+title: A failed check on an unchanged tree is never re-run
+text: |-
+  Fault (reported by the Smart AI Books team): certify failed once on a work because a spex run exited 1, so the work went back to the coder at fix. The coder re-ran the check and it passed (1204 passed), so the coder had nothing to change. The loop then sent the same tree and note to the coder three times and parked the work as 'waiting on its owner: sent to the coder a third time with the same tree and note' (lib/workflow/run.ex, around lines 600-620). Nobody (the coder, the manager or the owner) has a way to say 're-run certify' without changing the tree.
+
+  Wanted, in its smallest form:
+  1. When the coder's turn at fix ends with the tree unchanged, the loop re-runs the failed check once on that tree, instead of sending the same note back.
+  2. If the re-run passes, the work moves on. That is a flake by the same rule as the ci retry (failed, then passed on the same tree), so name it to the manager the same way ci-retries-with-a-retry-recipe does, reusing that code where it fits.
+  3. If the re-run fails again, park the work as today.
+
+  No new route, no new tool, no option.
+
+  Check: one test for the unchanged-tree path. A check fails once, then a coder turn ends with no change. The test shows the check is re-run once on the same tree, that a pass moves the work on with the flake named in the manager's message, and that a second failure parks it as today.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When a coder's fix turn ends with the tree unchanged after a failed check, the loop re-runs that failed check once on the same tree instead of sending the same note back"
+  - "When that re-run passes, the work moves on to its next step, and the manager's message names it as a flake: failed then passed on the same tree"
+  - "When that re-run fails again, the work is parked as today ('waiting on its owner: sent to the coder a third time with the same tree and note')"
