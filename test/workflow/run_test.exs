@@ -965,14 +965,17 @@ defmodule Workflow.RunTest do
 
     assert {%{name: "fix", actor: :coder}, "started"} = Workflow.Run.start(work)
 
-    assert_receive {:ran, first_note}
+    # Waited on the run ending (its watch waits on its turns), not on a clock: a
+    # loaded suite took longer than a receive's deadline between the turns.
+    capture_log(&settled/0)
+
+    assert_received {:ran, first_note}
     # Nothing moved: same step, same note. The agent should be told again, not left.
-    assert_receive {:ran, second_note}, 200
+    assert_received {:ran, second_note}
 
     refute second_note == first_note
     assert second_note =~ first_note
     assert second_note =~ ~r/nothing (moved|changed)/i
-    capture_log(&settled/0)
   end
 
   test "no-stalls: criterion 2 - an agent whose run errors twice is recorded as stopped with its step, reason and time, and logged once",
@@ -1030,34 +1033,31 @@ defmodule Workflow.RunTest do
 
     test = self()
 
-    # Each run waits to be let go, so the work is in flight while the file is looked at.
-    Application.put_env(:workflow, :agents_run, fn _step, _work ->
-      send(test, {:ran, self()})
+    file = Path.join(works_dir, "i1.json")
 
-      receive do
-        :go -> {%{}, "boom"}
-      end
+    # Each run looks at the file while the work is in flight, and sends what it found.
+    Application.put_env(:workflow, :agents_run, fn _step, _work ->
+      send(test, {:ran, File.read(file)})
+      {%{}, "boom"}
     end)
 
     on_exit(fn -> Application.delete_env(:workflow, :agents_run) end)
 
     capture_log(fn ->
       assert {%{name: "fix", actor: :coder}, "started"} = Workflow.Run.start(work)
-      assert_receive {:ran, first}
-
-      file = Path.join(works_dir, "i1.json")
-      assert %{"id" => "i1", "agent" => agent} = file |> File.read!() |> Jason.decode!()
-      assert agent == %{"provider" => "claude-code"}
-      refute File.read!(file) =~ "sekret"
-
-      send(first, :go)
-      assert_receive {:ran, second}
-      send(second, :go)
+      # Waited on the run ending (its watch waits on its turns), not on a clock.
       settled()
-
-      # Stopped: no longer in flight, so nothing to resume.
-      refute File.exists?(file)
     end)
+
+    for _run <- 1..2 do
+      assert_received {:ran, {:ok, kept}}
+      assert %{"id" => "i1", "agent" => agent} = Jason.decode!(kept)
+      assert agent == %{"provider" => "claude-code"}
+      refute kept =~ "sekret"
+    end
+
+    # Stopped: no longer in flight, so nothing to resume.
+    refute File.exists?(file)
   end
 
   test "system-steps-outlive-their-caller: a system step goes on, kept in flight, after the process that handed the work in is killed",
