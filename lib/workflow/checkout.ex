@@ -99,7 +99,7 @@ defmodule Workflow.Checkout do
 
     here = Path.join(root, project || ".")
 
-    case cmd("just", ["copy-setup"], cd: here, stderr_to_stdout: true) do
+    case cmd("just", ["copy-setup"], cd: here, stderr_to_stdout: true, env: recipe_env([])) do
       {_out, 0} ->
         File.rm(mark)
         root
@@ -125,7 +125,7 @@ defmodule Workflow.Checkout do
 
     with true <- File.dir?(here),
          {out, status} when status != 0 <-
-           cmd("just", ["copy-teardown"], cd: here, stderr_to_stdout: true) do
+           cmd("just", ["copy-teardown"], cd: here, stderr_to_stdout: true, env: recipe_env([])) do
       Logger.warning(
         "[Workflow #{id}] `just copy-teardown` in #{here} failed (exit #{status}); " <>
           "the copy is removed anyway: #{String.trim(out)}"
@@ -849,6 +849,16 @@ defmodule Workflow.Checkout do
         cmd("just", ["--show", name], cd: Path.join(root, dir || "."), stderr_to_stdout: true)
       )
 
+  # What a recipe the loop runs is given: the call's own `env`, and CODEMYSPEC_PLUGIN
+  # as the plugin folder in use, absolute, so a project's recipes can find it. Not
+  # set with no plugin.
+  defp recipe_env(env) do
+    case Workflow.Plugin.dir() do
+      nil -> env
+      dir -> [{"CODEMYSPEC_PLUGIN", Path.expand(dir)} | env]
+    end
+  end
+
   defp first_line(text), do: text |> String.split("\n", parts: 2) |> hd() |> String.trim()
 
   defp run_recipe(root, dir, dir_analysis, args, env, recipe, into, trailing \\ []) do
@@ -858,7 +868,11 @@ defmodule Workflow.Checkout do
     File.mkdir_p!(target)
 
     {output, status} =
-      cmd("just", args ++ [target | trailing], cd: project, stderr_to_stdout: true, env: env)
+      cmd("just", args ++ [target | trailing],
+        cd: project,
+        stderr_to_stdout: true,
+        env: recipe_env(env)
+      )
 
     took_ms = System.monotonic_time(:millisecond) - started
 
