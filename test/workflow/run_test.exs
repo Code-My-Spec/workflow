@@ -587,6 +587,11 @@ defmodule Workflow.RunTest do
         stand_in.("just", args, opts)
         if ci == :none, do: {"error: Justfile does not contain recipe `ci`", 1}, else: {"", 0}
 
+      # No retry recipe: a failing ci runs once more.
+      "just", ["--show", "retry"] = args, opts ->
+        stand_in.("just", args, opts)
+        {"error: Justfile does not contain recipe `retry`", 1}
+
       "just", ["ci", run] = args, opts ->
         stand_in.("just", args, opts)
         sarif.(run)
@@ -754,6 +759,64 @@ defmodule Workflow.RunTest do
     File.write!(Path.join(dir, "config.json"), ~s({"deploy": "prod"}))
     assert {:error, why} = Workflow.ConfigFile.load()
     assert why =~ "owner's go"
+  end
+
+  test "ci-retries-with-a-retry-recipe: criterion 3 - a landing whose ci fails and whose retry passes names the flaky test to the manager and in the work's report to the server",
+       %{tmp_dir: dir} do
+    manager()
+
+    sarif = fn run ->
+      File.write!(
+        Path.join(run, "exunit.sarif"),
+        Jason.encode!(%{
+          "runs" => [
+            %{
+              "tool" => %{"driver" => %{"name" => "exunit"}},
+              "results" => [
+                %{
+                  "level" => "error",
+                  "message" => %{"text" => "test a flaky one (ATest)\nassert false"},
+                  "locations" => [
+                    %{
+                      "physicalLocation" => %{"artifactLocation" => %{"uri" => "test/a_test.exs"}}
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        })
+      )
+    end
+
+    work = landing(dir, 1, sarif)
+    test = self()
+    inner = Application.get_env(:workflow, :cmd)
+
+    # The project has a retry recipe, and its retry passes.
+    Application.put_env(:workflow, :cmd, fn
+      "just", ["--show", "retry"], _opts -> {"retry dir:", 0}
+      "just", ["retry", _run] = args, _opts -> send(test, {"just", args}) && {"", 0}
+      command, args, opts -> inner.(command, args, opts)
+    end)
+
+    # The test stands in for the loop's line to the server.
+    Process.register(self(), Workflow.Server)
+
+    assert Workflow.Run.step(work) == nil
+    assert_received {"just", ["ci", first]}
+    assert_received {"just", ["retry", second]}
+    assert first != second
+    refute_received {"just", ["ci", _again]}
+
+    flake = %{"file" => "test/a_test.exs", "test" => "test a flaky one (ATest)"}
+    assert_receive {:report, %{"work" => "i1", "flakes" => [^flake]}}, 3_000
+
+    assert_receive {:manager_told, told}, 3_000
+    assert told =~ "test/a_test.exs: test a flaky one (ATest)"
+
+    # Green: deployed as any green landing is.
+    assert_receive {"git", ["worktree", "add", "-b", "provision/uat-t1" | _]}, 2_000
   end
 
   test "look-steps: criterion 3", %{tmp_dir: dir} do

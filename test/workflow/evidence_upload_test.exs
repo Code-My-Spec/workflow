@@ -35,6 +35,9 @@ defmodule Workflow.EvidenceUploadTest do
       "just", ["--show", "ci"], _opts ->
         {"ci dir:", 0}
 
+      "just", ["--show", "retry"], _opts ->
+        {"error: Justfile does not contain recipe `retry`", 1}
+
       "just", ["ci", target], _opts ->
         for {journey, files} <- evidence, file <- files do
           folder = Path.join([target, "evidence", journey])

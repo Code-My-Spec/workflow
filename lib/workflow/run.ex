@@ -296,6 +296,16 @@ defmodule Workflow.Run do
         say(work, "ci: passed at #{commit}")
         deploy(work, snapshot, commit)
 
+      # Green after a retry: the tests that failed first are kept as the work's ci
+      # result, so its report to the server names them.
+      {:green, flakes} ->
+        say(work, "ci: passed at #{commit} after a retry, #{length(flakes)} flaky test(s)")
+
+        if File.dir?(root),
+          do: Checkout.record(root, id, "ci", %{"status" => "passed", "flakes" => flakes})
+
+        deploy(work, snapshot, commit)
+
       :known ->
         say(work, "ci: failed at #{commit}, with the failures the previous ci run had")
 
