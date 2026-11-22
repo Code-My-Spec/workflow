@@ -41,10 +41,11 @@ defmodule Workflow.Application do
 
   defp start_tree do
     # Served only where a port is configured: as a dependency it is a library.
+    # Only to a Host of 127.0.0.1 or localhost (`Workflow.LocalOnly`).
     served =
       case Application.get_env(:workflow, :port) do
         nil -> []
-        port -> [{Bandit, plug: Workflow.Router, port: port, ip: {127, 0, 0, 1}}]
+        port -> [{Bandit, plug: Workflow.LocalOnly, port: port, ip: {127, 0, 0, 1}}]
       end
 
     # What each agent on a work has said and done so far (`Workflow.Agents`).

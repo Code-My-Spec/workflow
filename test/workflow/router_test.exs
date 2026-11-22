@@ -182,6 +182,40 @@ defmodule Workflow.RouterTest do
     end
   end
 
+  test "local-api-refuses-foreign-hosts: a foreign Host is refused and does nothing, localhost is served, and a go without the owner's word does not move the work",
+       %{tmp_dir: dir} do
+    work = waiting_prod(dir)
+    # Made up here, at run time: never a real word.
+    word = Base.encode16(:crypto.strong_rand_bytes(16))
+    hold_go(Base.encode16(:crypto.hash(:sha256, word), case: :lower))
+
+    served = fn url, body ->
+      conn(:post, url, Jason.encode!(body))
+      |> put_req_header("content-type", "application/json")
+      |> Workflow.LocalOnly.call(Workflow.LocalOnly.init([]))
+    end
+
+    # A foreign Host, with or without a port, is refused even with the word.
+    for url <- ["http://evil.example/work/go", "http://evil.example:4000/work/go"] do
+      conn = served.(url, Map.put(work, "word", word))
+      assert conn.status == 403
+      assert Jason.decode!(conn.resp_body)["error"] =~ "Host"
+    end
+
+    refute_receive {:just, ["provision" | _]}, 200
+
+    # A localhost go without the owner's word is refused, and the work does not move on.
+    assert served.("http://localhost:4000/work/go", work).status == 403
+    assert served.("http://localhost/work/go", Map.put(work, "word", "a guess")).status == 403
+    refute_receive {:just, ["provision" | _]}, 200
+    refute Workflow.Run.look(work).working
+
+    # 127.0.0.1 with the owner's word is served as today.
+    assert served.("http://127.0.0.1:4000/work/go", Map.put(work, "word", word)).status == 200
+    assert_receive {:just, ["provision", "a", _dir]}, 2000
+    wait_out(work)
+  end
+
   test "prod-waits-for-the-owner: POST /work/go from any address but the service's own is refused and runs nothing",
        %{tmp_dir: dir} do
     fake_cmd(dir)
