@@ -34,10 +34,30 @@ defmodule Workflow.Checkout do
     root = root(repo, id)
 
     cond do
-      not File.dir?(root) -> cut(repo, kind, id, project, at)
+      not File.dir?(root) or copying?(repo, id) -> cut(repo, kind, id, project, at)
       at -> root
       true -> take_main(repo, root)
     end
+  end
+
+  @doc """
+  Whether the copy for `id` beside `repo` was begun and its copy-setup has not
+  yet passed: a half-made copy, cut short (seen live: by a restart), never
+  reused as finished.
+  """
+  @spec copying?(String.t(), String.t()) :: boolean()
+  def copying?(repo, id), do: File.exists?(copying(repo, id))
+
+  # Marked before the copy is begun, cleared once copy-setup passes.
+  defp copying(repo, id), do: Path.rootname(path(repo, id)) <> ".copying"
+
+  # What a copy cut short left, its worktree and its branch, taken away so it is
+  # made afresh.
+  defp unmake(repo, root, branch) do
+    git(repo, ["worktree", "remove", "--force", root])
+    File.rm_rf(root)
+    git(repo, ["worktree", "prune"])
+    git(repo, ["branch", "-D", branch])
   end
 
   # Seen live: a story handed in again by id resumed a kept branch that had never
@@ -63,16 +83,31 @@ defmodule Workflow.Checkout do
 
   defp cut(repo, kind, id, project, at) do
     root = root(repo, id)
-    {:ok, _} = git(repo, ["worktree", "add", "-b", "#{kind}/#{id}", root | List.wrap(at)])
+    branch = "#{kind}/#{id}"
+    mark = copying(repo, id)
+    if File.exists?(mark), do: unmake(repo, root, branch)
+    File.mkdir_p!(Path.dirname(mark))
+    File.write!(mark, "")
+    add = ["worktree", "add", "-b", branch, root | List.wrap(at)]
+
+    # A branch left by a cut cut short (`a branch named ... already exists`): made afresh.
+    {:ok, _} =
+      with {:error, _} <- git(repo, add) do
+        unmake(repo, root, branch)
+        git(repo, add)
+      end
+
     here = Path.join(root, project || ".")
 
     case cmd("just", ["copy-setup"], cd: here, stderr_to_stdout: true) do
       {_out, 0} ->
+        File.rm(mark)
         root
 
       {out, status} ->
         git(repo, ["worktree", "remove", "--force", root])
         git(repo, ["branch", "-D", "#{kind}/#{id}"])
+        File.rm(mark)
 
         missing =
           if out =~ "does not contain recipe", do: "this project has no copy-setup recipe. "
