@@ -1,0 +1,25 @@
+id: "the-loop-publishes-as-codemyspec"
+kind: "issue"
+title: The loop's brew formula is codemyspec-loop instead of codemyspec
+text: |-
+  Fault: the loop publishes its brew formula as `codemyspec-loop`. The owner's ruling: "we already have a brew package named CodeMySpec. I just want the workflows library to publish to that package. we can just overwrite it." So the loop's brew formula is `codemyspec`, not `codemyspec-loop`. The command it installs stays `workflow`.
+
+  Wanted: change every place, with its tests, and nothing else.
+  1. packaging/codemyspec-loop.rb becomes packaging/codemyspec.rb, class Codemyspec. Its log file is var/log/codemyspec.log. Keep its placeholders for version, url and sha256 as they are.
+  2. justfile `release`: write Formula/codemyspec.rb in the tap and commit it as "codemyspec <version>". In the same commit, remove Formula/codemyspec-loop.rb if the tap has it (`git rm --ignore-unmatch`), so two formulas never install the same command. The release notes say "codemyspec <version>". The skip-when-unchanged rule stays.
+  3. The tarball is named codemyspec-darwin-arm64.tar.gz everywhere: the package recipe, the release url (https://github.com/Code-My-Spec/workflow/releases/download/v<version>/codemyspec-darwin-arm64.tar.gz) and the tests.
+  4. lib/workflow/init.ex prints "brew services start codemyspec". README.md and packaging/README.md say brew install codemyspec, brew services start/stop codemyspec, and the new log path.
+  5. Tests that name any of these follow the rename: init_test, package_carries_the_plugin_test, packaged_defaults_survive_an_upgrade_test, packaging_test, release_recipe_test. The upgrade test's Cellar path becomes Cellar/codemyspec/... Check that the code it tests does not depend on the old name, and fix it if it does.
+  6. Afterwards, grep the whole repository except issues/ and notes/ for codemyspec-loop and CodemyspecLoop. None may be left.
+
+  Rules: no other change and no new options. Don't weaken or delete any test's assertions; only rename what they name. NEVER run `just release` with inputs that would pass its checks, because it publishes. The release tests keep using their fake gh and git, and must show the tap commit writes Formula/codemyspec.rb and removes Formula/codemyspec-loop.rb.
+
+  Report in the decision note: every file changed or renamed, and the grep result.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "packaging/codemyspec.rb is the formula template, with class Codemyspec and its log at var/log/codemyspec.log; packaging/codemyspec-loop.rb no longer exists; the installed command is still `workflow`"
+  - "`just package` builds codemyspec-darwin-arm64.tar.gz, and `just release` uses that name in the release url"
+  - "`just release` writes Formula/codemyspec.rb in the tap, commits it as \"codemyspec <version>\" with Formula/codemyspec-loop.rb removed in the same commit when the tap has it, and its release notes say \"codemyspec <version>\""
+  - "`workflow init` prints `brew services start codemyspec` as its next step, and README.md and packaging/README.md name `brew install codemyspec`, `brew services start/stop codemyspec` and the codemyspec log path"
+  - "Outside issues/ and notes/, no file in the repository contains codemyspec-loop or CodemyspecLoop"
