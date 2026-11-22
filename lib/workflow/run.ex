@@ -689,8 +689,11 @@ defmodule Workflow.Run do
 
   # Left on an event, kept in flight with its copy, so the event finds it; else
   # landed, waiting on its owner or done.
-  defp left(work, %{actor: :external, name: name}),
-    do: say(work, "waiting on the event #{name}")
+  # An agent's conversation is not kept while the work waits on the world.
+  defp left(%{"id" => id} = work, %{actor: :external, name: name}) do
+    Agents.forget(id)
+    say(work, "waiting on the event #{name}")
+  end
 
   defp left(%{"id" => id} = work, left) do
     land(work, landed(left))

@@ -33,12 +33,6 @@ defmodule Workflow.Agents do
       %{"provider" => "claude-code"} = named ->
         # This machine's own `claude` login.
         config = %{model: named["model"] || "claude-sonnet-5-5", workdir: root}
-        # The plugin's MCP servers, where it has a `.mcp.json`.
-        config =
-          with "" <> mcp <- Workflow.Plugin.mcp(),
-               do: Map.put(config, :settings_path, mcp),
-               else: (_ -> config)
-
         {:ok, {AlloyClaudeCode, config}}
 
       %{"provider" => "anthropic", "key" => "" <> key} = named ->
@@ -87,6 +81,11 @@ defmodule Workflow.Agents do
     who = %{work: id, step: step.name, role: step.actor}
     prompt = message(step, work, said, snapshot)
     tools = Enum.map(agent.tools, &@tools[&1]) ++ decide(agent, decided)
+
+    # A Claude Code agent also has the plugin's MCP servers, as Alloy runs its tools.
+    tools =
+      if match?({AlloyClaudeCode, _}, provider), do: tools ++ Workflow.Mcp.tools(), else: tools
+
     system = if(:write in agent.tools, do: agent.brief <> @writer, else: agent.brief) <> skills
     Workflow.Conversation.begun(conversation, who, system, tools)
     Workflow.Conversation.append(conversation, who, :prompt, prompt)
