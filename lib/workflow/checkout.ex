@@ -448,7 +448,9 @@ defmodule Workflow.Checkout do
   @doc "The output of `git status --short` in the checkout, as git gives it."
   @spec status(String.t()) :: String.t()
   def status(root) do
-    {out, _status} = cmd("git", ~w(status --short), [cd: root, stderr_to_stdout: true] ++ @no_lock)
+    {out, _status} =
+      cmd("git", ~w(status --short), [cd: root, stderr_to_stdout: true] ++ @no_lock)
+
     out
   end
 
@@ -860,6 +862,12 @@ defmodule Workflow.Checkout do
           {_shown, 0} -> analyse(at, dir, "ci")
           _no_recipe -> %{"status" => "passed", "note" => "no ci recipe"}
         end
+
+      # A green run's evidence goes up before any later run can prune this checkout.
+      if verdict["status"] == "passed" and verdict["dir"] do
+        server = Application.get_env(:workflow, :server)
+        Workflow.Evidence.upload(verdict["dir"], Path.join(at, dir || "."), commit, server)
+      end
 
       compared(git_dir, commit, verdict)
     after

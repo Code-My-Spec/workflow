@@ -63,6 +63,22 @@ line of `git worktree list`), on whatever branch it has checked out, even when
 `manager.repo` names a linked worktree of it. The manager is told that folder
 and branch, and names them to the person before the first work it hands in.
 
+## Recipes and the evidence folder
+
+The loop analyses a project by running `just <recipe> <dir>` (`run`, `certify`,
+`ci`, `demo`, ...), where `<dir>` is that run's own analysis folder.
+
+The `ci` recipe may leave evidence there: a project that wants it writes
+`<dir>/evidence/<journey id>/` holding that journey's stage screenshots (`.png`).
+After `ci` exits 0, and only when `config.json` has a `"server"`, the loop sends
+each sub-folder with at least one `.png`: its `.png` files plus
+`stories/<journey id>.yml` from the ci checkout when that file exists, by
+`POST <server url>/api/loop/evidence` (the loop's bearer token; body
+`{project_id, commit, journey, files}`; answer `{folder, puts: {name: url}}`),
+then a PUT of each file to its url. It is sent before the ci checkout can be
+pruned. No folder or no `.png` sends nothing. A failure logs one warning and
+never changes ci's result.
+
 ## MCP endpoints
 
 - `POST /mcp` is the chat's endpoint: it offers only `say` and `inbox`, and
