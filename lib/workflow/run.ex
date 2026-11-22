@@ -702,7 +702,11 @@ defmodule Workflow.Run do
     # The turn is over: none is kept in flight to be given back.
     fly(work)
 
-    case uncommitted(step, root, id) || recheck(step, work, elem(seen, 2)) || step(work) do
+    # Seen live: a reviewer's check run left untracked logs, and the work sat on
+    # promote saying no reason. A dirty system step after a turn is taken as
+    # `system/1` takes it: to the coder, else stopped saying what git says.
+    case uncommitted(step, root, id) || recheck(step, work, elem(seen, 2)) ||
+           to_coder(step(work), work) do
       # The check run again at the unchanged tree failed again: it waits, as a third send would.
       :red ->
         wait(
@@ -719,6 +723,9 @@ defmodule Workflow.Run do
 
       %{agent: _} = left ->
         stop(work, left, "stopped: its #{@handoffs} handoffs are spent" <> told(elem(sent, 2)))
+
+      %{actor: :system} = left ->
+        stop(work, left, dirty(root))
 
       left ->
         land(work, landed(left))
