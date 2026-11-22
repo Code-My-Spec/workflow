@@ -1,0 +1,21 @@
+id: "no-stalls-tests-are-flaky"
+kind: "issue"
+title: The no-stalls tests in run_test.exs fail intermittently under the full suite
+text: |-
+  Fault: at tree 1526b94858137990c2cd235d3665873ed04758fe, `just certify` failed, then passed when run again at the same tree. So two tests in Workflow.RunTest are flaky. Both runs are kept: /Volumes/X10 Pro/github/workflow/.git/workflow/analysis/1526b94858137990c2cd235d3665873ed04758fe/1795326309 (failed) and .../1795326468 (passed).
+
+  The first run's failures:
+  1. test no-stalls: criterion 1 - an agent whose turn changes nothing is told again instead of being left (test/workflow/run_test.exs:954): `assert_receive {:ran, second_note}` found no matching message after 200ms. The mailbox held 132 messages, all git calls (rev-list --count --no-merges trunk..HEAD, status --porcelain, rev-parse --git-common-dir).
+  2. test no-stalls: criterion 4 - a work whose turns were started is kept in works_dir without its key, and removed once it is stopped: `assert_receive {:ran, first}` found no matching message after 100ms. The mailbox held 74 messages, again only git calls.
+
+  Wanted: find the actual cause of the flake and fix that. The owner's rule: a longer timeout or a retry is NOT a fix. Look at what the tests wait on and what the code does between the turn ending and the next {:ran, _} message (for example a race in lib/workflow/run.ex, a message that can arrive before the test is ready, shared state between tests, or a process the test does not wait on). Name the cause in the decision note, with the code that shows it. If the cause is in lib/, fix it there; if it is in the tests, fix the tests so they wait on the event they need.
+
+  Rules: smallest change, no new options. Don't delete or weaken either test, and don't mark them skipped or excluded. Don't raise the receive timeouts or add a retry as the fix.
+
+  Check: run both tests repeatedly (for example a loop of runs or --repeat-until-failure) and run the full suite, and report the counts in the decision note. Show that each test still fails when the behaviour it guards is broken.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "The 'no-stalls: criterion 1' test in test/workflow/run_test.exs passes on every run of the full suite at the same tree"
+  - "The 'no-stalls: criterion 4' test in test/workflow/run_test.exs passes on every run of the full suite at the same tree"
+  - "Both tests still fail when the behaviour they guard is broken (an agent whose turn changes nothing is left instead of told again; a started work is not kept in works_dir without its key, or not removed once stopped)"
