@@ -143,7 +143,7 @@ defmodule Workflow.PackageCarriesThePluginTest do
 
     File.write!(
       skill,
-      "write to user@example.com\nrun /Users/someone/bin/x\nmail a.person@company.io\n"
+      "write to user@example.com\nrun /Users/someone/bin/x\nmail a.person@company.io\nfrom onboarding@resend.dev\nsend as notifications@mail.example.com\n"
     )
 
     File.mkdir_p!(Path.dirname(Path.join(app, @instructions)))
@@ -163,6 +163,8 @@ defmodule Workflow.PackageCarriesThePluginTest do
     assert said =~ "skills/coder/SKILL.md:3:a.person@company.io", said
     assert said =~ "#{@instructions}:1:AKIAABCDEFGHIJKLMNOP", said
     refute said =~ "user@example.com"
+    refute said =~ "onboarding@resend.dev"
+    refute said =~ "notifications@mail.example.com"
     refute File.exists?(Path.join(work, "_build"))
   end
 end
