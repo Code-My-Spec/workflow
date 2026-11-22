@@ -1815,7 +1815,9 @@ defmodule Workflow.RunTest do
 
   test "a work resumed on uncommitted changes with no agent at work is stopped, not dropped",
        %{tmp_dir: dir} do
-    work = checkout(dir, 1, 0) |> Map.put("agent", %{"provider" => "claude-code"})
+    # No agent to give the tree to: one that has an agent goes to its coder instead
+    # (see a_killed_turn_does_not_strand_its_work_test.exs).
+    work = checkout(dir, 1, 0)
     cmd = Application.get_env(:workflow, :cmd)
 
     Application.put_env(:workflow, :cmd, fn
