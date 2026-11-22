@@ -89,6 +89,15 @@ then a PUT of each file to its url. It is sent before the ci checkout can be
 pruned. No folder or no `.png` sends nothing. A failure logs one warning and
 never changes ci's result.
 
+When `ci` fails, a project may have a `retry` recipe: the loop runs
+`just retry <dir2>` in the same ci checkout, where `<dir2>` is a new run folder
+beside the first, so both runs' evidence is kept and neither overwrites the other.
+`retry` runs only what failed (for a mix project, `mix test --failed`) and writes
+its SARIF into `<dir2>`, as `ci` does into `<dir>`. A failing retry leaves the
+tree red. A passing one is green: each test that failed in the first run's SARIF
+is a flake, named (file and test) to the manager and in the work's report to the
+server (`"flakes"`). A project with no `retry` recipe has `ci` run once more instead.
+
 ## MCP endpoints
 
 - `POST /mcp` is the chat's endpoint: it offers only `say` and `inbox`, and

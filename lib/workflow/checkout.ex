@@ -448,7 +448,9 @@ defmodule Workflow.Checkout do
   @doc "The output of `git status --short` in the checkout, as git gives it."
   @spec status(String.t()) :: String.t()
   def status(root) do
-    {out, _status} = cmd("git", ~w(status --short), [cd: root, stderr_to_stdout: true] ++ @no_lock)
+    {out, _status} =
+      cmd("git", ~w(status --short), [cd: root, stderr_to_stdout: true] ++ @no_lock)
+
     out
   end
 
@@ -668,26 +670,52 @@ defmodule Workflow.Checkout do
     end
   end
 
-  # The second run of a recipe whose first failed. Its verdict is the step's; one
-  # that passes tells the manager, once, that the tree was flaky.
+  # The second run of a recipe whose first failed, in a run folder of its own. Its
+  # verdict is the step's. A ci whose project has a `retry` recipe runs that, which
+  # runs only what failed, instead of ci again. One that passes tells the manager,
+  # once, that the tree was flaky, naming each test that failed in the first run's
+  # SARIF (all of them passed again), and carries them as the verdict's "flakes".
   defp rerun(root, dir, dir_analysis, args, recipe, first) do
-    case run_recipe(root, dir, dir_analysis, args, [], recipe, nil) do
+    again = if args == ["ci"] and recipe?(root, dir, "retry"), do: ["retry"], else: args
+
+    case run_recipe(root, dir, dir_analysis, again, [], recipe, nil) do
       %{"status" => "passed"} = second ->
+        if again != args, do: Sarif.merge_meta(second["dir"], %{"ran" => "retry"})
+
+        flakes =
+          Enum.uniq(
+            for f <- Sarif.failures(first["dir"]),
+                do: %{"file" => f["file"], "test" => f["text"] |> to_string() |> first_line()}
+          )
+
+        named = Enum.map_join(flakes, "", &"\n- #{&1["file"] || "(no file)"}: #{&1["test"]}")
+
         note =
           "The tree #{Path.basename(dir_analysis)} was flaky: `just #{recipe}` failed, " <>
-            "then passed when run again at the same tree. The first run's failures:\n\n" <>
-            "#{first["note"]}\n\nBoth runs are kept, in #{first["dir"]} and #{second["dir"]}. " <>
+            "then `just #{Enum.join(again, " ")}` passed at the same tree." <>
+            if(flakes == [], do: "", else: " Flaky tests:#{named}") <>
+            "\n\nThe first run's failures:\n\n#{first["note"]}\n\n" <>
+            "Both runs are kept, in #{first["dir"]} and #{second["dir"]}. " <>
             "Hand in an issue for this flaky failure."
 
         if Workflow.Manager.configured(),
           do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", note) end)
 
-        second
+        Map.put(second, "flakes", flakes)
 
       second ->
         second
     end
   end
+
+  defp recipe?(root, dir, name),
+    do:
+      match?(
+        {_, 0},
+        cmd("just", ["--show", name], cd: Path.join(root, dir || "."), stderr_to_stdout: true)
+      )
+
+  defp first_line(text), do: text |> String.split("\n", parts: 2) |> hd() |> String.trim()
 
   defp run_recipe(root, dir, dir_analysis, args, env, recipe, into) do
     target = if into, do: Path.join(dir_analysis, into), else: Sarif.new_run(dir_analysis)
@@ -835,7 +863,9 @@ defmodule Workflow.Checkout do
   Runs `just ci <dir>` at exactly the landed `commit`, in a detached checkout of
   its own (`<git common dir>/workflow/ci/<commit>`) that a later landing does not
   move, through `analyse/3`: its own run folder, and a failure run once more.
-  A project with no `ci` recipe is green. Answers `:green`; `:known` when the
+  A project with no `ci` recipe is green. Answers `:green`; `{:green, flakes}`
+  when ci failed and its retry passed, `flakes` the tests (file and test) that
+  failed first; `:known` when the
   previous ci run already had every failure; `{:new, verdict}` when it had none
   of them; `{:mixed, verdict}` when it had some.
 
@@ -843,7 +873,7 @@ defmodule Workflow.Checkout do
   `<git common dir>/workflow/ci/` whose run is not still going.
   """
   @spec ci(String.t(), String.t(), String.t() | nil) ::
-          :green | :known | {:new, map()} | {:mixed, map()}
+          :green | {:green, [map()]} | :known | {:new, map()} | {:mixed, map()}
   def ci(main_copy, commit, dir) do
     {:ok, git_dir} = git(main_copy, ~w(rev-parse --path-format=absolute --git-common-dir))
     at = Path.join([git_dir, "workflow", "ci", commit])
@@ -867,7 +897,10 @@ defmodule Workflow.Checkout do
         Workflow.Evidence.upload(verdict["dir"], Path.join(at, dir || "."), commit, server)
       end
 
-      compared(git_dir, commit, verdict)
+      case {compared(git_dir, commit, verdict), verdict["flakes"]} do
+        {:green, [_ | _] = flakes} -> {:green, flakes}
+        {answer, _flakes} -> answer
+      end
     after
       prune_ci(main_copy, Path.dirname(at), commit)
       :global.del_lock(lock, [node()])
