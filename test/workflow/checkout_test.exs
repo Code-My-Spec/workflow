@@ -4,6 +4,13 @@ defmodule Workflow.CheckoutTest do
   @moduletag :tmp_dir
 
   alias Workflow.Checkout
+  import Workflow.Settled
+
+  # The loop's background work is waited on (`idle/0`): none is left from a test before.
+  setup do
+    Workflow.Tellings.quiet()
+    on_exit(&Workflow.Tellings.quiet/0)
+  end
 
   # A checkout at tree `tree`, in the git directory `dir`, with `just` exiting `status`.
   defp fake(dir, tree, status) do
@@ -263,14 +270,10 @@ defmodule Workflow.CheckoutTest do
     Application.delete_env(:workflow, :recipients)
   end
 
-  # What the manager was told, waiting a little for the loop's background telling.
+  # What the manager was told, once the loop's background telling has ended.
   defp told do
-    Enum.find_value(1..20, [], fn _ ->
-      case Workflow.Messages.unread("manager") do
-        [] -> Process.sleep(50) && nil
-        messages -> messages
-      end
-    end)
+    idle()
+    Workflow.Messages.unread("manager")
   end
 
   test "flake-rerun: criterion 1 - a recipe that fails twice at one tree fails the step with the second run's note, two run folders kept",
@@ -317,7 +320,7 @@ defmodule Workflow.CheckoutTest do
       assert text =~ "flaky #{recipe} failure"
 
       # Told once: nothing more comes.
-      Process.sleep(200)
+      idle()
       assert Workflow.Messages.unread("manager") == []
     end
   end
@@ -683,13 +686,7 @@ defmodule Workflow.CheckoutTest do
 
     assert %{"status" => "promoted"} = Checkout.promote(work, %{main_copy: main})
 
-    told =
-      Enum.find_value(1..40, [], fn _ ->
-        case Workflow.Messages.unread("manager") do
-          [] -> Process.sleep(50) && nil
-          messages -> messages
-        end
-      end)
+    told = told()
 
     assert [%{"text" => text}] = told
     assert text =~ "ci: red at abc; push refused"
@@ -737,13 +734,7 @@ defmodule Workflow.CheckoutTest do
 
     assert %{"status" => "promoted", "note" => note} = Checkout.promote(work, %{main_copy: main})
 
-    told =
-      Enum.find_value(1..40, [], fn _ ->
-        case Workflow.Messages.unread("manager") do
-          [] -> Process.sleep(50) && nil
-          messages -> messages
-        end
-      end)
+    told = told()
 
     assert [%{"text" => text}] = told
     assert text == note
@@ -825,19 +816,13 @@ defmodule Workflow.CheckoutTest do
 
     assert %{"status" => "promoted"} = Checkout.promote(work, %{main_copy: main})
 
-    told =
-      Enum.find_value(1..40, [], fn _ ->
-        case Workflow.Messages.unread("manager") do
-          [] -> Process.sleep(50) && nil
-          messages -> messages
-        end
-      end)
+    told = told()
 
     assert [%{"text" => text}] = told
     assert text =~ "does not appear to be a git repository"
 
     # Nothing retries on a timer: no second message arrives.
-    Process.sleep(500)
+    idle()
     assert Workflow.Messages.unread("manager") == []
   end
 
@@ -874,7 +859,7 @@ defmodule Workflow.CheckoutTest do
     first = land.("w1")
 
     # Nothing pushes again by itself.
-    Process.sleep(500)
+    idle()
     assert git.(remote, ["branch", "--list", "dev"]) == ""
 
     File.rm!(hook)

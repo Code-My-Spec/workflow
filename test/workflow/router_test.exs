@@ -3,6 +3,7 @@ defmodule Workflow.RouterTest do
   use ExUnit.Case
   import Plug.Test
   import Plug.Conn
+  import Workflow.Settled
 
   @moduletag :tmp_dir
 
@@ -106,12 +107,11 @@ defmodule Workflow.RouterTest do
     |> Workflow.Router.call(Workflow.Router.init([]))
   end
 
-  # The run holds the checkout's lock until it lands: waited out, so it never lands in a later test.
+  # The run holds the checkout's lock until it lands: waited out, so it never lands
+  # in a later test. Waited on the run itself, not on a clock.
   defp wait_out(work) do
-    assert Enum.find(1..500, fn _try ->
-             Process.sleep(10)
-             not Workflow.Run.look(work).working
-           end)
+    settled()
+    refute Workflow.Run.look(work).working
   end
 
   test "go-needs-the-owners-word: criterion 1 - with no go hash set, the go is refused, says how to set one, and runs nothing",
@@ -147,8 +147,8 @@ defmodule Workflow.RouterTest do
     conn = post_go(Map.put(work, "word", @word))
 
     assert conn.status == 200
-    assert_receive {:just, ["provision", "a", _dir]}, 2000
     wait_out(work)
+    assert_received {:just, ["provision", "a", _dir]}
   end
 
   test "go-needs-the-owners-word: criterion 4 - neither the word nor the hash is in any log line or file the loop writes",
@@ -163,8 +163,8 @@ defmodule Workflow.RouterTest do
         assert conn.status == 200
         refute conn.resp_body =~ @word
         refute conn.resp_body =~ @hash
-        assert_receive {:just, ["provision", "a", _dir]}, 2000
         wait_out(work)
+        assert_received {:just, ["provision", "a", _dir]}
       end)
 
     refute log =~ @word
@@ -212,8 +212,8 @@ defmodule Workflow.RouterTest do
 
     # 127.0.0.1 with the owner's word is served as today.
     assert served.("http://127.0.0.1:4000/work/go", Map.put(work, "word", word)).status == 200
-    assert_receive {:just, ["provision", "a", _dir]}, 2000
     wait_out(work)
+    assert_received {:just, ["provision", "a", _dir]}
   end
 
   test "prod-waits-for-the-owner: POST /work/go from any address but the service's own is refused and runs nothing",
@@ -325,13 +325,12 @@ defmodule Workflow.RouterTest do
     assert %{"done" => false, "step" => "copy-setup", "agent" => "started"} =
              Jason.decode!(conn.resp_body)
 
-    assert_receive {"git", ["worktree", "add" | _]}, 2_000
+    # Waited on the run itself, not on a clock: the copy is made in the background.
+    settled()
+    assert_received {"git", ["worktree", "add" | _]}
 
     # Left on fix with no agent named: no longer in flight once the copy is made.
-    assert Enum.find(1..500, fn _try ->
-             Process.sleep(10)
-             not File.exists?(Path.join([dir, "works", "i1.json"]))
-           end)
+    refute File.exists?(Path.join([dir, "works", "i1.json"]))
   end
 
   test "a work naming neither root nor repo is refused", %{tmp_dir: dir} do

@@ -14,13 +14,19 @@ defmodule Workflow.ARefusedFlakeIsNotLostTest do
     String.trim(out)
   end
 
-  # The notice the manager is told as the work `id` leaves flight.
+  # The notice the manager was told as the work `id` left flight: its run, let go,
+  # ends by itself, and is waited on, not on a clock.
   defp notice(id) do
+    Workflow.Settled.idle()
+    told(id)
+  end
+
+  defp told(id) do
     receive do
       {:told, text} when is_binary(text) ->
-        if String.starts_with?(text, "issue #{id}: "), do: text, else: notice(id)
+        if String.starts_with?(text, "issue #{id}: "), do: text, else: told(id)
     after
-      15_000 -> flunk("no notice for #{id}")
+      0 -> flunk("no notice for #{id}")
     end
   end
 
