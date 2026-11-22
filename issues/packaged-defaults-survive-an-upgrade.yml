@@ -1,0 +1,21 @@
+id: "packaged-defaults-survive-an-upgrade"
+kind: "issue"
+title: After brew upgrade, config.json names a plugin that no longer exists
+text: |-
+  Fault: `workflow init` run from a brew install writes the packaged plugin and instructions into config.json as absolute paths under RELEASE_ROOT. Under Homebrew that is the versioned Cellar folder (for example /opt/homebrew/Cellar/codemyspec-loop/3.0.1/libexec/...). After `brew upgrade` and brew's cleanup, that folder is gone. The loop then starts with a config naming a plugin that does not exist.
+
+  Wanted, fixed at the root, as the smallest change that does it:
+  1. `workflow init` writes `plugin` and `instructions` into config.json only when the person gave them (an explicit --plugin still writes that DIR). It never writes the packaged paths.
+  2. When config.json has no plugin or no instructions, the loop uses the running release's packaged ones. It finds them at boot from RELEASE_ROOT (its plugin folder and instructions.md).
+  3. When config.json names a plugin or instructions path that no longer exists, the loop fails loudly at start, and the message names the missing path. It must not run silently with no plugin.
+  4. A config already written by 3.0.1 that names a Cellar path of an older version: handle it the smallest honest way, and say in the decision note exactly what you chose and why. Do not edit any person's real config.json.
+  5. Update README.md's install section to match: init no longer writes the packaged paths, and an upgrade keeps working without re-running init.
+
+  Check: tests in a temporary works dir with RELEASE_ROOT pointed at a temporary release folder, never the real ~/.workflow. They show: a config with no plugin key and RELEASE_ROOT set resolves the packaged plugin and instructions; init without --plugin writes neither key, and with --plugin writes it; a config naming a missing path fails at start with a message naming that path; and the 3.0.1 older-Cellar case behaves as your decision note says.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "`workflow init` given no --plugin writes neither a plugin nor an instructions key into config.json; given --plugin DIR it still writes that DIR"
+  - "When config.json has no plugin or instructions key and RELEASE_ROOT is set, the loop at boot uses the plugin and instructions.md packaged under RELEASE_ROOT"
+  - "When config.json names a plugin or instructions path that does not exist, the loop fails at start with a message naming that path, instead of running without a plugin"
+  - "README.md's install section says init leaves the packaged plugin and instructions out of config.json, so they follow the installed version across upgrades"
