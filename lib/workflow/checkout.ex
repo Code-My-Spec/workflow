@@ -819,6 +819,78 @@ defmodule Workflow.Checkout do
     Map.put(second, "flakes", flakes)
   end
 
+  @doc """
+  The flaky failures kept in `repo`'s evidence that no work has been handed in
+  for since they were seen, each with its file, line and test. A flake is a run
+  folder whose recipe failed, followed at the same tree by a run of the same
+  recipe that passed (a ci retry, a certify rerun, a recheck); it was seen when
+  that second run was made. It is handled once the main copy has a hand-in
+  commit (`<kind> <id>: the <kind> as handed in`) made at or after that time.
+  """
+  @spec unhandled_flakes(String.t() | nil) :: [map()]
+  def unhandled_flakes(repo) do
+    with true <- is_binary(repo) and File.dir?(repo),
+         {:ok, git_dir} <- git(repo, ~w(rev-parse --path-format=absolute --git-common-dir)),
+         [_ | _] = seen <- flakes_seen(Path.join([git_dir, "workflow", "analysis"])) do
+      handed_in = handed_in_at(repo)
+
+      seen
+      |> Enum.reject(fn {at, _failures} -> Enum.any?(handed_in, &(&1 >= at)) end)
+      |> Enum.flat_map(&elem(&1, 1))
+      |> Enum.uniq()
+    else
+      _none -> []
+    end
+  end
+
+  defp flakes_seen(analysis) do
+    for tree <- Path.wildcard(Path.join(analysis, "*")),
+        runs = runs_in(tree),
+        {{dir, meta}, i} <- Enum.with_index(runs),
+        meta["exit"] not in [0, nil],
+        {_next, %{"exit" => 0} = again} <-
+          [Enum.find(Enum.drop(runs, i + 1), fn {_, m} -> m["recipe"] == meta["recipe"] end)],
+        {:ok, seen, _offset} <- [DateTime.from_iso8601(again["at"] || "")],
+        failures = Sarif.failures(dir),
+        failures != [] do
+      {DateTime.to_unix(seen),
+       for(
+         f <- failures,
+         do: %{
+           "file" => f["file"],
+           "line" => f["line"],
+           "test" => f["text"] |> to_string() |> first_line()
+         }
+       )}
+    end
+  end
+
+  # A tree's run folders, earliest first, each with its meta.
+  defp runs_in(tree) do
+    for name <- File.ls!(tree),
+        {at, ""} <- [Integer.parse(name)],
+        dir = Path.join(tree, name),
+        File.dir?(dir) do
+      {at, dir}
+    end
+    |> Enum.sort()
+    |> Enum.map(fn {_at, dir} -> {dir, Sarif.meta(dir)} end)
+  end
+
+  # The unix times of the main copy's hand-in commits.
+  defp handed_in_at(repo) do
+    case git(repo, ["log", "--format=%ct %s"]) do
+      {:ok, out} ->
+        for line <- String.split(out, "\n", trim: true),
+            [ct, subject] <- [String.split(line, " ", parts: 2)],
+            subject =~ ~r/^\S+ \S+: the \S+ as handed in$/,
+            do: String.to_integer(ct)
+
+      _none ->
+        []
+    end
+  end
+
   defp recipe?(root, dir, name),
     do:
       match?(
