@@ -51,7 +51,8 @@ defmodule Workflow.Agents do
 
   @doc """
   Runs the step's agent to the end of its turn. Answers what it decided, else
-  `%{}`, and the error the run ended in, else `nil`.
+  `%{}`, with its final text as `"said"` when it had any, and the error the run
+  ended in, else `nil`.
   """
   @spec run(Workflow.step(), map()) :: {map(), term() | nil}
   def run(step, work) do
@@ -109,6 +110,13 @@ defmodule Workflow.Agents do
 
     review = Agent.get(decided, & &1)
     Agent.stop(decided)
+
+    # The turn's final words, so a turn that changed nothing still says why.
+    review =
+      case result do
+        {:ok, %{text: "" <> text}} when text != "" -> Map.put(review, "said", text)
+        _no_words -> review
+      end
 
     with {_status, %{messages: messages}} <- result,
          do: Agent.update(__MODULE__, &Map.put(&1, {id, step.actor}, messages))

@@ -599,23 +599,29 @@ defmodule Workflow.Run do
       {step.actor, step.name, tree,
        step.note && String.replace_prefix(step.note, "#{@again}\n\n", "")}
 
-    times =
+    # The last agent's final words are carried along, for the stop note.
+    {times, words} =
       case sent do
-        {^seen, times} -> times + 1
-        _other -> 1
+        {^seen, times, words} -> {times + 1, words}
+        {_other, _times, words} -> {1, words}
+        nil -> {1, nil}
       end
 
     if times < 3, do: say(work, "#{step.name} started (#{step.actor})")
 
     case times < 3 && agent_turn(step, work) do
       false ->
-        wait(work, step, "sent to the #{step.actor} a third time with the same tree and note")
+        wait(
+          work,
+          step,
+          "sent to the #{step.actor} a third time with the same tree and note" <> told(words)
+        )
 
       {:error, error} ->
         stop(work, step, "parked: its run ended in error twice: #{inspect(error)}")
 
       decided ->
-        turned(step, work, handoffs, decided, from, {seen, times})
+        turned(step, work, handoffs, decided, from, {seen, times, words})
     end
   end
 
@@ -627,6 +633,10 @@ defmodule Workflow.Run do
   end
 
   defp turned!(step, %{"id" => id, "root" => root} = work, handoffs, decided, from, sent) do
+    # Seen live: a coder's turn that changed nothing logged no reason at all.
+    {words, decided} = Map.pop(decided, "said")
+    {seen, times, last} = sent
+    sent = {seen, times, words || last}
     # What an agent decided is its step's result, at the tree it decided it at.
     if decided != %{}, do: Checkout.record(root, id, step.name, decided)
     # A coder's turn on `work` was given any rejection note still owed: it is answered.
@@ -634,7 +644,7 @@ defmodule Workflow.Run do
     # Whose commit the tree is, and the commits before the turn that made it, for a
     # template that reads a result by who made it.
     Checkout.record(root, id, "by", %{"step" => step.name, "at" => now(), "from" => from})
-    said = Enum.reject([decided["status"], decided["note"]], &is_nil/1)
+    said = Enum.reject([decided["status"], decided["note"] || words], &is_nil/1)
     say(work, "#{step.name} turn by the #{step.actor} ended: #{Enum.join(said, ": ")}")
     work = Map.drop(work, ["review", "demo", "note"])
 
@@ -645,7 +655,7 @@ defmodule Workflow.Run do
         turn(again(next, step), work, handoffs - 1, sent)
 
       %{agent: _} = left ->
-        stop(work, left, "stopped: its #{@handoffs} handoffs are spent")
+        stop(work, left, "stopped: its #{@handoffs} handoffs are spent" <> told(elem(sent, 2)))
 
       left ->
         land(work, landed(left))
@@ -673,6 +683,10 @@ defmodule Workflow.Run do
     Checkout.stop(root, id, step.name, reason)
     land(work, landed(%{step | note: why}))
   end
+
+  # An agent's last words, said in a stop note.
+  defp told(nil), do: ""
+  defp told(words), do: ". Its last turn ended saying: #{words}"
 
   defp landed(nil), do: "done"
   defp landed(:cancelled), do: "stopped for good by the manager"
