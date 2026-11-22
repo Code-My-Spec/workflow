@@ -413,7 +413,8 @@ defmodule Workflow.Run do
   # was left a worktree with no works file, never run and never reported. It is
   # kept as in flight before the copy is begun, so one cut short is resumed.
   defp start!(%{"repo" => repo, "id" => id} = work, run) when not is_map_key(work, "root") do
-    if File.dir?(Checkout.root(repo, id)) do
+    # A copy whose copy-setup never passed is half-made: it is made again, here too.
+    if File.dir?(Checkout.root(repo, id)) and not Checkout.copying?(repo, id) do
       copied(work, run)
     else
       fly(work)
@@ -809,9 +810,28 @@ defmodule Workflow.Run do
           Workflow.Messages.say(
             "manager",
             "workflow",
-            "#{kind} #{id}: #{how}#{outcome(work, how)}"
+            "#{kind} #{id}: #{how}#{outcome(work, how)}#{unhandled_flakes(work)}"
           )
         end)
+  end
+
+  # A landing frees a slot: a flake whose hand-in was refused at the cap is named
+  # again, until a work is handed in after it was seen.
+  defp unhandled_flakes(work) do
+    case Checkout.unhandled_flakes(work["repo"] || work["root"]) do
+      [] ->
+        ""
+
+      flakes ->
+        named =
+          Enum.map_join(flakes, "", fn f ->
+            at = Enum.join(Enum.reject([f["file"] || "(no file)", f["line"]], &is_nil/1), ":")
+            "\n- #{at}: #{f["test"]}"
+          end)
+
+        "\n\nFlaky failures no work has been handed in for since they were seen:" <>
+          named <> "\nA slot is free: hand in an issue for them."
+    end
   end
 
   # A work done says what it left, so the manager can tell an empty one from a real one.

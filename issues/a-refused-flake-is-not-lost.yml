@@ -1,0 +1,17 @@
+id: "a-refused-flake-is-not-lost"
+kind: "issue"
+title: A flake whose fix was refused at the cap is forgotten
+text: |-
+  Fault (seen three times tonight on two loops): the loop tells the manager a tree was flaky, the manager tries to hand in a fix, and the service refuses because the slots are full. Nothing records the flake, so it gets fixed only if the manager happens to remember it.
+
+  Wanted, the smallest way, with no new queue, no new option and no new file format if the kept evidence already answers it: when a landing frees a slot, the notice the manager already gets also lists the flaky failures that no work has been handed in for since they were seen. Each one is named by test file and line, taken from the evidence the loop already keeps (the two run folders of a flaky tree, first run's failures vs the rerun). A flake counts as handled once a work has been handed in after it was seen. When nothing is unhandled, the notice is unchanged.
+
+  Confirm in the code first where flakes are detected and told to the manager (Checkout.flaky/2 and the ci retry / recheck paths), where the landing notice is built, and what the kept evidence holds. Name in the decision note how you tell 'handled' from 'not handled' without a new store. If that cannot be answered from the kept evidence and the works/issue records, stop and say what is missing instead of inventing a format.
+
+  Check: one test, with temporary folders and a fake agent, never the real .git/workflow. A flaky tree is seen, a hand-in is refused at the cap, then a landing frees a slot: the notice lists the flaky test's file and line. After a work is handed in for it, a later notice no longer lists it. Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When a landing frees a slot, the notice the manager gets lists each flaky failure seen since (test file and line, from the kept evidence) that no work has been handed in for"
+  - "A flaky failure that a work has been handed in for since it was seen is not listed in that notice"
+  - "When there is no such unhandled flaky failure, the notice reads as it does today"
