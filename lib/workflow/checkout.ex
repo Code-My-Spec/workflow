@@ -1008,7 +1008,9 @@ defmodule Workflow.Checkout do
         Workflow.Evidence.upload(verdict["dir"], Path.join(at, dir || "."), commit, server)
       end
 
-      case {compared(git_dir, commit, verdict), verdict["flakes"]} do
+      parent = previous(main_copy, git_dir, commit, verdict["status"] != "passed")
+
+      case {compared(git_dir, commit, parent, verdict), verdict["flakes"]} do
         {:green, [_ | _] = flakes} -> {:green, flakes}
         {answer, _flakes} -> answer
       end
@@ -1040,22 +1042,64 @@ defmodule Workflow.Checkout do
     :ok
   end
 
-  # Kept as the last ci run, and read against the one before it. Not a `.json`:
-  # no work's id can name it.
-  defp compared(git_dir, commit, verdict) do
-    path = Path.join([git_dir, "workflow", "ci-last"])
-
-    was =
-      with {:ok, json} <- File.read(path),
-           {:ok, %{"failures" => was}} <- Jason.decode(json) do
-        was
-      else
-        _none -> []
+  # The landing before `commit` (its first parent). A red waits for that landing's
+  # ci run, if going, to end: a red it carries is that landing's, not this one's.
+  defp previous(main_copy, git_dir, commit, red?) do
+    with {:ok, parents} <- git(main_copy, ["rev-list", "--parents", "-n", "1", commit]),
+         [_commit, parent | _merged] <- String.split(parents) do
+      if red? do
+        going = {{__MODULE__, :ci, Path.join([git_dir, "workflow", "ci", parent])}, self()}
+        :global.set_lock(going, [node()])
+        :global.del_lock(going, [node()])
       end
 
+      parent
+    else
+      _root -> nil
+    end
+  end
+
+  # Kept as the last ci run, beside each recent run by the commit it ran on, and
+  # read against the run at `parent` (the last run when there is none). One run
+  # reads and writes it at a time. Not a `.json`: no work's id can name it.
+  defp compared(git_dir, commit, parent, verdict) do
+    path = Path.join([git_dir, "workflow", "ci-last"])
     failures = if verdict["status"] == "passed", do: [], else: failure_keys(verdict)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, Jason.encode!(%{"commit" => commit, "failures" => failures}))
+
+    was =
+      :global.trans({{__MODULE__, :ci_last, path}, self()}, fn ->
+        last =
+          with {:ok, json} <- File.read(path),
+               {:ok, %{} = last} <- Jason.decode(json) do
+            last
+          else
+            _none -> %{}
+          end
+
+        runs = last["runs"] || []
+
+        was =
+          case Enum.find(runs, &(&1["commit"] == parent)) do
+            %{"failures" => was} -> was
+            nil -> last["failures"] || []
+          end
+
+        runs =
+          Enum.take(
+            Enum.reject(runs, &(&1["commit"] == commit)) ++
+              [%{"commit" => commit, "failures" => failures}],
+            -20
+          )
+
+        File.mkdir_p!(Path.dirname(path))
+
+        File.write!(
+          path,
+          Jason.encode!(%{"commit" => commit, "failures" => failures, "runs" => runs})
+        )
+
+        was
+      end)
 
     cond do
       failures == [] -> :green
