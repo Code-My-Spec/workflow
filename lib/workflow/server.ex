@@ -62,25 +62,68 @@ defmodule Workflow.Server do
   def handle_info({:said, {event, payload}}, socket) do
     Logger.info("[Workflow.Server] said #{payload["ref"]}")
     push(socket, socket.assigns.topic, event, payload)
-    {:noreply, socket}
+    {:noreply, assign(socket, :last_push, event)}
   end
 
   # A work's whole picture (`Workflow.Report`). A send that fails is logged and
   # dropped: nothing is queued or retried, and the next report says it all again.
-  def handle_info({:report, report}, socket) do
-    with {:error, why} <- push(socket, socket.assigns.topic, "report", report) do
-      Logger.warning("[Workflow.Server] report on #{report["work"]} not sent: #{inspect(why)}")
-    end
+  # A server that does not take reports (see `handle_topic_close/3`) is sent none.
+  def handle_info({:report, _report}, %{assigns: %{no_reports: true}} = socket),
+    do: {:noreply, socket}
 
-    {:noreply, socket}
+  def handle_info({:report, report}, socket) do
+    case push(socket, socket.assigns.topic, "report", report) do
+      {:ok, _ref} ->
+        {:noreply, assign(socket, :last_push, "report")}
+
+      {:error, why} ->
+        Logger.warning("[Workflow.Server] report on #{report["work"]} not sent: #{inspect(why)}")
+        {:noreply, socket}
+    end
   end
 
-  # A refused or dropped join is tried again, at Slipstream's own pace.
+  # A refused or dropped join is tried again after Slipstream's `rejoin_after_msec`
+  # pause. Slipstream sets its rejoin count back to 0 on every join that succeeds,
+  # so a channel that is joined and then closes would be rejoined at its first
+  # pause every time: the count of closes is kept here and given back to it, so
+  # the pause grows on each close up to the list's last (its cap).
+  #
+  # A channel that crashes straight after a report is taken as a server that does
+  # not take reports (an older app): no more are pushed for the life of the process.
   @impl Slipstream
   def handle_topic_close(topic, reason, socket) do
     Logger.warning("[Workflow.Server] #{topic} closed: #{inspect(reason)}")
+    closes = Map.get(socket.assigns, :closes, 0)
+
+    socket =
+      socket
+      |> no_reports(reason)
+      |> assign(closes: closes + 1, last_push: nil)
+
+    socket =
+      if Map.has_key?(socket.joins, topic),
+        do: put_in(socket.joins[topic].rejoin_counter, closes),
+        else: socket
+
     rejoin(socket, topic)
   end
+
+  defp no_reports(%{assigns: %{last_push: "report"} = assigns} = socket, reason)
+       when not is_map_key(assigns, :no_reports) do
+    case reason do
+      {:error, %{"reason" => "channel_crash"}} ->
+        Logger.warning(
+          "[Workflow.Server] the channel crashed on a report: this server does not take reports, so no more are sent"
+        )
+
+        assign(socket, :no_reports, true)
+
+      _other ->
+        socket
+    end
+  end
+
+  defp no_reports(socket, _reason), do: socket
 
   @impl Slipstream
   def handle_join(topic, _reply, socket) do
