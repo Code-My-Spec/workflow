@@ -1,0 +1,23 @@
+id: "local-api-refuses-foreign-hosts"
+kind: "issue"
+title: The local HTTP API accepts foreign hosts and a coder can give the owner's go
+text: |-
+  Audit item 10 (must fix), as given: local-api-refuses-foreign-hosts. No Host check on the HTTP API (DNS rebinding), and a coder with bash can POST `/work/go` itself. Refuse a Host that is not 127.0.0.1 / localhost; the owner's go needs something a coder's turn cannot read.
+
+  The effect: a web page the owner visits can reach the loop's local API through DNS rebinding, because the API never checks the Host header. A coder's turn, which has bash, can also POST /work/go and give the owner's go to its own work.
+
+  Rules:
+  - Confirm both defects in the code first, and name in the decision note where the API takes requests and where /work/go is handled.
+  - Make the smallest change that fixes it, with no new options.
+  - Host check: refuse every API request whose Host is not 127.0.0.1 or localhost (a port is allowed). Requests with those hosts behave as today.
+  - The owner's go needs something a coder's turn cannot read. You must not choose the owner's go word yourself, and you must not write one into code, tests' fixtures that ship, config defaults, the repository, or anywhere a coder's checkout or turn can read. The go must stay unreachable by chat and by every manager tool (hand_in, record, decide, look, tell, stop, say, inbox): none of them may give it or reveal it.
+  - In the decision note, say exactly where the owner's go comes from, why a coder's turn cannot read it, and what the owner must do to set it. If this cannot be done without the owner deciding something (for example where the go is kept), stop and say so in the decision note rather than guessing.
+  - Add one small test that fails without the fix. It shows that a request with a foreign Host (for example evil.example) is refused, that a localhost request still works, and that a POST to /work/go without the owner's go is refused and the work does not move on. Tests use a value they make up at run time, never a real one.
+  - Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A request to the loop's HTTP API whose Host is not 127.0.0.1 or localhost (with or without a port) is refused, and nothing it asked for is done"
+  - "A request whose Host is 127.0.0.1 or localhost is served as today"
+  - "A POST to /work/go without the owner's go is refused, and the work it names does not move on"
+  - "The owner's go cannot be given through chat or through any manager tool"
