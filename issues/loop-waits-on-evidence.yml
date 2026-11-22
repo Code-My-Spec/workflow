@@ -1,0 +1,47 @@
+id: "loop-waits-on-evidence"
+kind: "issue"
+title: The loop runs its own CI instead of waiting on the server's evidence
+text: |-
+  Step 4 of a plan the owner approved. He said to finish it without check-ins. The loop is the WORKFLOW only: CI and deploys have left it. This repository must end up smaller and tidier.
+
+  THE CONTRACT. The server half is being built at the same time in the CodeMySpec app, so keep to it exactly.
+  - The server pushes an `event` on the loop's existing channel `loop:<project>`: {"work": <work id>, "name": <step name>, "payload": {...}}. For CI, name is "ci" and payload is {"verdict": "green"|"flaky"|"red", "tree": ..., "commit": ..., "failing": [test ids], "flaky": [test ids]}.
+  - Locally, the same event can be POSTed to the router: POST /works/:id/events {"name", "payload"}. It is localhost only, like the rest of the API (LocalOnly stays).
+  - Each run of `just certify` and `just run` the loop makes gets env EVIDENCE_CONTEXT=certify/<work id> (for run: run/<work id>) and one EVIDENCE_CORRELATION uuid. After the recipe, the loop uploads that copy's new `.code_my_spec/evidence/*.sarif` files (and each `<guid>/` screenshot folder) over its channel: push `presign` {project_id, files: [names]}, which replies {puts: {name: url}}; PUT each file to its url with no auth header; then push `uploaded` {project_id, guids}. With no server or no reply, it logs one line and goes on. The upload never changes the certify verdict, which stays the recipe's exit code. Delete the files it uploaded.
+  - The loop forwards `pushed` {branch, commit} on its channel after it pushes the main copy. This is what queues CI on the server.
+
+  BUILD:
+  1. A general EXTERNAL step: a template step with actor :external. It is done when an event with its name has been recorded for the work, in the results file like any step result and keyed the way other results are. Until then the work waits on it, holding nothing but its record. The journey's owner `approve` step becomes the same mechanism: the actor name stays :owner, but it waits on an event named "approve". Keep POST to approve working through the same path.
+  2. Landing: after promote, the Issue, Story and Journey templates get a final external step `ci`. Its event's payload decides:
+     - green: the work is done, and its copy and agents are released, as today's green landing.
+     - flaky: the work is done and released, and for each flaky test an issue is handed in (kind issue, id flaky-<short test name>-<short tree>, text naming the test, the tree, and that it failed and passed on that tree) so it gets fixed.
+     - red: blame comes from the evidence. The work goes back to its coder (`fix`) with the failing tests in the note, exactly as Parts.landed/2 sends a red today.
+     A server that never sends a ci event (an old server) leaves the loop waiting, and the manager can release the work by hand. Do not add a timeout.
+  3. CUT, with their tests, docs and stories text:
+     - the loop's own post-landing CI: Checkout ci/3, prune_ci, previous, compared, failure_keys, ci-last, the ci worktrees, Run's ci/3 and red/4, and the use of the `retry` recipe;
+     - the certify/run rerun at an unchanged tree and all flake bookkeeping: Checkout rerun, flaky, unhandled_flakes, flakes_seen, runs_in, handed_in_at; Run recheck and unhandled_flakes; report.ex "flakes";
+     - lib/workflow/evidence.ex and its upload (replaced by the channel upload above), and Sarif.failures/1 if nothing else uses it;
+     - the manager's persona and story RECORDING tools (recording personas, recording a story without building it). Product tools come later from a product-manager plugin's MCP servers;
+     - the story_file workflow mapping (workflow_file/2, workflow_ids/1);
+     - lib/mix/tasks/workflow.sarif.ex and its tests (moved to the CodeMySpec Phoenix plugin as bin/evidence.exs);
+     - priv/knowledge, lib/workflow/knowledge.ex, and the ponytail/browser brief text in parts.ex and agents.ex. They belong in the plugin's skills; the plugin is still handed to agents as today;
+     - the config_file deploy/go ignore shim.
+     KEEP: multi-provider agents (anthropic, openai, claude-code), messaging to claude-code sockets and codex (terminal agents come later), sign-in, plugins, skills, packaging, init, review, promote, CODEMYSPEC_PLUGIN for recipes, the server channel, and the say/report handling that stops reports to an old server.
+  4. Plugins carry MCP servers: when the configured plugin folder has `.mcp.json`, each Claude Code agent gets those MCP servers, the way Claude Code reads a plugin's .mcp.json. Nothing else changes.
+
+  This repository's own justfile recipes must keep working. They used `mix workflow.sarif`; switch them to plain `mix test` and `mix compile --warnings-as-errors`, since this repo has no plugin.
+
+  Rules: grep every caller before cutting anything. Add a test for each new behaviour, each failing when its code is removed, with fakes for the channel and HTTP (no network) and temporary git repos and folders (never the real ~/.workflow or .git/workflow). No absence tests. Delete only tests that test exclusively what is cut; never weaken a kept test. No new options.
+
+  Report in the decision note: lib and test line counts before and after, and what was cut, kept and added.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A work at an external step waits, holding only its record, until an event with that step's name is recorded for it, whether pushed on the loop:<project> channel as `event` {work, name, payload} or POSTed to /works/:id/events from localhost; then it moves on"
+  - "A journey's owner approve step waits on an event named \"approve\" through the same mechanism, and POST to approve still moves it on"
+  - "After promote, an issue, story or journey waits at its `ci` step; a ci event with verdict green marks it done and releases its copy and agents"
+  - "A ci event with verdict flaky marks the work done and released, and an issue with id flaky-<short test name>-<short tree> is handed in for each flaky test, naming the test, the tree and that it failed and passed on that tree"
+  - "A ci event with verdict red sends the work back to its coder at fix with the failing tests in the note, as a red landing does today"
+  - "Each `just certify` and `just run` the loop makes gets EVIDENCE_CONTEXT (certify/<work id> or run/<work id>) and one EVIDENCE_CORRELATION uuid; afterwards the copy's new .code_my_spec/evidence/*.sarif files and <guid>/ screenshot folders are uploaded through presign, PUT and uploaded, then deleted, and the certify verdict stays the recipe's exit code even when there is no server or no reply"
+  - "After the loop pushes the main copy, it pushes `pushed` {branch, commit} on its channel"
+  - "When the configured plugin folder has .mcp.json, each Claude Code agent gets those MCP servers"
