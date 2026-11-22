@@ -1,0 +1,27 @@
+id: "the-manager-can-message-the-chat"
+kind: "issue"
+title: The manager cannot reach the person's chat unprompted
+text: |-
+  Fault: the loop has no way to reach the person's chat agent unprompted. The owner's words: "It needs an inbox and we need a tool to send it messages". The server half is being built now in the CodeMySpec app (as the-chat-has-an-inbox-the-loop-can-reach): the loop channel `loop:<project>` accepts a push `message` {text}, delivers it to the project's chat inbox, and replies ok {id}.
+
+  Wanted, as the smallest change that does it, with no new options:
+  1. A manager tool `message_chat` taking {text}. It pushes `message` {text} over the server channel (Workflow.Server) and answers whether it was delivered: ok with the id, or why not (no server configured, refused by the server, or no reply). With no server configured it says so. It never fails silently.
+  2. Its brief, in the tool description and the manager's instructions: use it when the person must know or decide something now (a question only they can answer, a work stopped, a red that needs them). Do not use it for routine progress, which the chat collects with say.
+  3. The local API keeps working as today. POST /manager can ask the manager to send one, and it goes through the same tool.
+
+  Confirm in the code first how Workflow.Server pushes and awaits replies today (presign is an example of a push with a reply) and where the manager's tools and brief are defined. Grep every caller of what you change.
+
+  Check: tests with a fake channel, no network, never the real ~/.workflow:
+  - the tool pushes `message` with the text and reports the ok reply with its id;
+  - a refused push and a missing reply are each reported as not delivered, with the reason;
+  - with no server configured, it says so and pushes nothing;
+  - the brief names when to use it and that routine progress goes through say.
+  Each test must fail without the fix. Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "The manager's message_chat tool, given text, pushes `message` {text} on the loop:<project> channel, and when the server replies ok {id} its answer says the message was delivered and gives the id"
+  - "When the server refuses the message or sends no reply, message_chat's answer says it was not delivered and why"
+  - "When no server is configured, message_chat's answer says there is no server and nothing was sent"
+  - "The manager's brief says to use message_chat when the person must know or decide something now (a question only they can answer, a stopped work, a red that needs them), and not for routine progress, which goes through say"
+  - "POST /manager can ask the manager to send a chat message, and it is sent through message_chat"
