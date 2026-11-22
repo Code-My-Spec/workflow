@@ -211,17 +211,23 @@ defmodule Workflow.Checkout do
     end
   end
 
+  # Merged into it, as branch_merged? asks: an issue's file is committed on the
+  # main branch's own line under the same prefix, and that is not a landing.
   defp commits_merged?(folder, prefix) do
-    case git(folder, ["log", "-F", "--grep=" <> prefix, "--format=%s", "HEAD"]) do
-      {:ok, subjects} ->
-        subjects
-        |> String.split("\n", trim: true)
-        |> Enum.any?(
-          &(String.starts_with?(&1, prefix) and not String.starts_with?(&1, prefix <> "stopped"))
-        )
+    with {:ok, commits} <-
+           git(folder, ["log", "-F", "--grep=" <> prefix, "--format=%H %s", "HEAD"]),
+         {:ok, line} <- git(folder, ~w(rev-list --first-parent HEAD)) do
+      line = String.split(line, "\n", trim: true)
 
-      _none ->
-        false
+      commits
+      |> String.split("\n", trim: true)
+      |> Enum.map(&String.split(&1, " ", parts: 2))
+      |> Enum.any?(fn [sha, subject] ->
+        String.starts_with?(subject, prefix) and
+          not String.starts_with?(subject, prefix <> "stopped") and sha not in line
+      end)
+    else
+      _none -> false
     end
   end
 

@@ -2147,4 +2147,18 @@ defmodule Workflow.ManagerTest do
     assert said =~ "stopped for good"
     refute said =~ "landed"
   end
+
+  test "landed-means-merged: criterion 1 - a work whose only commit on main is its issue as handed in has not landed; criterion 2 - once its branch merges it has",
+       %{tmp_dir: dir} do
+    {repo, git, _look} = landed_repo(dir)
+    File.write!(Path.join(repo, "i1.yml"), "i1\n")
+    git.(~w(add -A))
+    git.(["commit", "-q", "-m", "issue i1: the issue as handed in"])
+    work_branch(repo, git, "issue", "i1", "i1: the fix")
+
+    refute Workflow.Checkout.landed?(repo, "issue", "i1")
+
+    git.(~w(merge -q --no-ff --no-edit issue/i1))
+    assert Workflow.Checkout.landed?(repo, "issue", "i1")
+  end
 end
