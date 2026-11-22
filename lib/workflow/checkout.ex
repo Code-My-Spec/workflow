@@ -105,6 +105,19 @@ defmodule Workflow.Checkout do
   def root(repo, id), do: "#{repo}-#{id}"
 
   @doc """
+  Nil for a plain name (letters, digits and dashes only), else the refusal naming
+  it: the one check on a work id or an inbox name, at every door it enters, since
+  each becomes a path, a branch or a checkout folder.
+  """
+  @spec refused(term()) :: String.t() | nil
+  def refused(name) do
+    unless is_binary(name) and name =~ ~r/\A[A-Za-z0-9-]+\z/,
+      do:
+        "Refused: #{inspect(name)} is not a plain name (only letters, digits and dashes). " <>
+          "Nothing was made from it."
+  end
+
+  @doc """
   Runs `just copy-teardown` in `project` of the worktree checkout made for `id`
   beside `repo`, removes it, and deletes its branch.
   """
