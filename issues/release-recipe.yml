@@ -1,0 +1,26 @@
+id: "release-recipe"
+kind: "issue"
+title: A brew release takes hand steps instead of one command
+text: |-
+  Fault: a brew release of the loop is a series of hand steps. The owner cut v3.0.2 and v3.0.3 by hand with exactly the steps below. The owner wants them as one justfile recipe, copied in spirit from the app repo's `publish_claude_extension` recipe (the old main justfile, around line 1236).
+
+  Wanted, as the smallest change that does it: a justfile recipe `release version app` that does these steps in order.
+  1. It refuses unless `version` is N.N.N and HEAD is exactly tagged v<version>. It publishes what is tagged. It never creates a tag.
+  2. It runs the existing `package` recipe with `app`, and takes the tarball path and the sha256 that package prints.
+  3. It runs `gh release create v<version> <tarball> --repo Code-My-Spec/workflow --title v<version> --notes <one line>`. It refuses if that release already exists.
+  4. It clones Code-My-Spec/homebrew-tap into a temp dir. It writes Formula/codemyspec-loop.rb from packaging/codemyspec-loop.rb with the version, the url (https://github.com/Code-My-Spec/workflow/releases/download/v<version>/codemyspec-loop-darwin-arm64.tar.gz) and the sha256 filled in. Then it commits 'codemyspec-loop <version>' and pushes. When the formula is unchanged, it skips the commit and the push.
+
+  Also:
+  - Make packaging/codemyspec-loop.rb the template for step 4, with placeholders for version, url and sha256.
+  - Shorten packaging/README.md's build steps to the one `just release <version> <app>` command, and delete the hand steps it replaces.
+
+  No options, no dry-run mode, no other platforms.
+
+  IMPORTANT: never run the recipe with inputs that would pass its checks, because it publishes. Do not create a GitHub release, do not clone or push the tap, do not tag, and do not push anything.
+
+  Check only what can be checked without publishing: the refusals in step 1. Tests run the recipe in a temporary git repo with a bad version (for example 3.0 or v3.0.4) and with a good version on an untagged HEAD, and also on a HEAD tagged with a different version. They put a fake `gh` and a fake `git push` on PATH (or the equivalent) that record any call. The tests show that each case refuses with a message naming the problem, and that no package build, gh call, clone or push happens. Also check that the formula template holds the three placeholders and that packaging/README.md shows the one command.
+criteria:
+  - "`just release <version> <app>` with a version that is not N.N.N refuses with a message naming the version, before it packages, creates a release, clones or pushes anything"
+  - "`just release <version> <app>` when HEAD is not exactly tagged v<version> refuses with a message saying so, before it packages, creates a release, clones or pushes anything"
+  - "packaging/codemyspec-loop.rb is a template with placeholders for version, url and sha256, which the release recipe fills in"
+  - "packaging/README.md's build steps are the single `just release <version> <app>` command, and the hand steps it replaces are gone"
