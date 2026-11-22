@@ -586,17 +586,20 @@ defmodule Workflow.Manager do
       },
       execute: fn %{"id" => id} = input, _context ->
         # Handed in again as it was kept, so its text and criteria go with the decision.
-        kept =
-          case checkout(manager, id) && Checkout.snapshot(root(manager, id), id) do
-            %{} -> Checkout.kept(root(manager, id), id)
-            _none -> %{}
-          end
+        # An id with no checkout has no work waiting on its demo: refused, not started.
+        case checkout(manager, id) && Checkout.snapshot(root(manager, id), id) do
+          %{} ->
+            Checkout.kept(root(manager, id), id)
+            |> Map.drop(["review", "demo", "note"])
+            |> Map.merge(Map.take(input, ["id", "kind", "demo", "note"]))
+            |> Map.merge(configured_for(manager))
+            |> started()
 
-        kept
-        |> Map.drop(["review", "demo", "note"])
-        |> Map.merge(Map.take(input, ["id", "kind", "demo", "note"]))
-        |> Map.merge(configured_for(manager))
-        |> started()
+          _none ->
+            {:ok,
+             "Refused: there is no work #{id} waiting on its owner's demo. " <>
+               "Nothing was started, recorded or resumed."}
+        end
       end
     )
   end
