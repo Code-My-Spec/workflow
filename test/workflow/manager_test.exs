@@ -91,6 +91,7 @@ defmodule Workflow.ManagerTest do
              "decide",
              "hand_in",
              "look",
+             "message_chat",
              "stop",
              "tell"
            ]

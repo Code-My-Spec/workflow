@@ -4,11 +4,11 @@ defmodule Workflow.ManagerToolsNamedTest do
   @router Path.expand("../../lib/workflow/router.ex", __DIR__)
   @readme Path.expand("../../README.md", __DIR__)
 
-  @manager_tools ["hand_in", "decide", "look", "tell", "stop"]
+  @manager_tools ["hand_in", "decide", "look", "tell", "stop", "message_chat"]
 
-  test "the router comment and the README name all five manager tools on /mcp/manager" do
+  test "the router comment and the README name all six manager tools on /mcp/manager" do
     assert File.read!(@router) =~
-             "# The manager's own tools (hand_in, decide, look, tell, stop)"
+             "# The manager's own tools (hand_in, decide, look, tell, stop, message_chat)"
 
     [_, endpoint] = Regex.run(~r/^- `POST \/mcp\/manager`(.*?)^\S/ms, File.read!(@readme))
     for tool <- @manager_tools ++ ["say", "inbox"], do: assert(endpoint =~ "`#{tool}`", tool)

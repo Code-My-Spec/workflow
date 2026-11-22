@@ -140,7 +140,7 @@ defmodule Workflow.Router do
   # The manager over MCP's streamable HTTP, for chat sessions: JSON-RPC, by hand.
   post("/mcp", do: mcp(conn, [], "chat"))
 
-  # The manager's own tools (hand_in, decide, look, tell, stop) as well, for one acting as
+  # The manager's own tools (hand_in, decide, look, tell, stop, message_chat) as well, for one acting as
   # the manager, with the manager settings from config.json; 404 with none.
   post "/mcp/manager" do
     case Workflow.Manager.configured() do
