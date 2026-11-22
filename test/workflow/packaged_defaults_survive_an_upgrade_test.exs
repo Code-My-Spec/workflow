@@ -109,10 +109,10 @@ defmodule Workflow.PackagedDefaultsSurviveAnUpgradeTest do
   # path, and README says to delete the two keys.
   test "packaged-defaults-survive-an-upgrade: a 3.0.1 config naming an older version's Cellar paths fails at start naming them",
        %{root: root, config: config} do
-    old = release(root, "Cellar/codemyspec-loop/3.0.1/libexec")
+    old = release(root, "Cellar/codemyspec/3.0.1/libexec")
     old_plugin = Path.join(old, "plugin")
     old_brief = Path.join(old, "instructions.md")
-    release(root, "Cellar/codemyspec-loop/3.0.2/libexec")
+    release(root, "Cellar/codemyspec/3.0.2/libexec")
     File.rm_rf!(old)
 
     body = Jason.encode!(%{"plugin" => old_plugin, "instructions" => old_brief})

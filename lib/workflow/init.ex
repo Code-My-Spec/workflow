@@ -65,7 +65,7 @@ defmodule Workflow.Init do
 
       steps =
         if(server, do: ["workflow sign-in"], else: []) ++
-          ["brew services start codemyspec-loop"]
+          ["brew services start codemyspec"]
 
       {:ok,
        "Wrote #{file}:\n\n#{json}\n\nNext:\n\n" <> Enum.map_join(steps, "\n", &("    " <> &1))}

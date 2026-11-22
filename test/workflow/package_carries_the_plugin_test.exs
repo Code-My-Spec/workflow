@@ -1,7 +1,7 @@
 defmodule Workflow.PackageCarriesThePluginTest do
   use ExUnit.Case, async: false
 
-  @tarball "codemyspec-loop-darwin-arm64.tar.gz"
+  @tarball "codemyspec-darwin-arm64.tar.gz"
   @plugin "plugins/phoenix"
   @instructions "plugins/claude/directory/skills/interview/SKILL.md"
 
@@ -56,7 +56,7 @@ defmodule Workflow.PackageCarriesThePluginTest do
 
     refute Map.has_key?(written, "plugin")
     refute Map.has_key?(written, "instructions")
-    assert said =~ "brew services start codemyspec-loop"
+    assert said =~ "brew services start codemyspec"
   end
 
   test "package-carries-the-plugin: criterion 4 an explicit --plugin still wins over the packaged one",

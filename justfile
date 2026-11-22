@@ -19,7 +19,7 @@ certify dir:
     mix workflow.sarif "{{dir}}/exunit.sarif" -- mix test
 
 # Build the prod release and its Homebrew tarball (on an Apple silicon Mac), then
-# print the tarball's path and sha256 for packaging/codemyspec-loop.rb. `app` is
+# print the tarball's path and sha256 for packaging/codemyspec.rb. `app` is
 # the CodeMySpec app's repository: its plugins/phoenix and its interview skill go
 # into the release as the default plugin and instructions that `workflow init` writes.
 package app="":
@@ -34,13 +34,13 @@ package app="":
     rm -rf _build/prod/rel/workflow/plugin _build/prod/rel/workflow/instructions.md
     cp -R "{{app}}/plugins/phoenix" _build/prod/rel/workflow/plugin
     cp "{{app}}/plugins/claude/directory/skills/interview/SKILL.md" _build/prod/rel/workflow/instructions.md
-    tar -C _build/prod/rel/workflow -czf _build/codemyspec-loop-darwin-arm64.tar.gz .
-    @echo "tarball: {{justfile_directory()}}/_build/codemyspec-loop-darwin-arm64.tar.gz"
-    @shasum -a 256 _build/codemyspec-loop-darwin-arm64.tar.gz | cut -d ' ' -f 1 | sed 's/^/sha256: /'
+    tar -C _build/prod/rel/workflow -czf _build/codemyspec-darwin-arm64.tar.gz .
+    @echo "tarball: {{justfile_directory()}}/_build/codemyspec-darwin-arm64.tar.gz"
+    @shasum -a 256 _build/codemyspec-darwin-arm64.tar.gz | cut -d ' ' -f 1 | sed 's/^/sha256: /'
 
 # Publish the commit tagged v<version> as the brew release: package it with `app`,
 # upload the tarball as GitHub release v<version>, and write the formula, filled in
-# from packaging/codemyspec-loop.rb, to Code-My-Spec/homebrew-tap. It never tags.
+# from packaging/codemyspec.rb, to Code-My-Spec/homebrew-tap. It never tags.
 release version app:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -56,14 +56,15 @@ release version app:
     tarball=$(sed -n 's/^tarball: //p' <<<"$out")
     sha=$(sed -n 's/^sha256: //p' <<<"$out")
     [ -n "$tarball" ] && [ -n "$sha" ] || { echo "just release: just package printed no tarball or sha256" >&2; exit 1; }
-    gh release create "$tag" "$tarball" --repo "$repo" --title "$tag" --notes "codemyspec-loop $version for macOS on Apple silicon"
-    url="https://github.com/$repo/releases/download/$tag/codemyspec-loop-darwin-arm64.tar.gz"
+    gh release create "$tag" "$tarball" --repo "$repo" --title "$tag" --notes "codemyspec $version for macOS on Apple silicon"
+    url="https://github.com/$repo/releases/download/$tag/codemyspec-darwin-arm64.tar.gz"
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     git clone -q https://github.com/Code-My-Spec/homebrew-tap.git "$tmp/tap"
     mkdir -p "$tmp/tap/Formula"
-    sed -e "s|__VERSION__|$version|" -e "s|__URL__|$url|" -e "s|__SHA256__|$sha|" "{{justfile_directory()}}/packaging/codemyspec-loop.rb" > "$tmp/tap/Formula/codemyspec-loop.rb"
-    git -C "$tmp/tap" add Formula/codemyspec-loop.rb
+    sed -e "s|__VERSION__|$version|" -e "s|__URL__|$url|" -e "s|__SHA256__|$sha|" "{{justfile_directory()}}/packaging/codemyspec.rb" > "$tmp/tap/Formula/codemyspec.rb"
+    git -C "$tmp/tap" add Formula/codemyspec.rb
+    git -C "$tmp/tap" rm -q --ignore-unmatch Formula/codemyspec-loop.rb
     if git -C "$tmp/tap" diff --cached --quiet; then echo "just release: the tap's formula is already $version; nothing to push"; exit 0; fi
-    git -C "$tmp/tap" commit -q -m "codemyspec-loop $version"
+    git -C "$tmp/tap" commit -q -m "codemyspec $version"
     git -C "$tmp/tap" push -q

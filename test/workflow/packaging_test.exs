@@ -1,7 +1,7 @@
 defmodule Workflow.PackagingTest do
   use ExUnit.Case, async: true
 
-  @tarball "codemyspec-loop-darwin-arm64.tar.gz"
+  @tarball "codemyspec-darwin-arm64.tar.gz"
 
   defp read(path), do: File.read!(Path.join(File.cwd!(), path))
 
@@ -28,7 +28,7 @@ defmodule Workflow.PackagingTest do
     assert package =~ "shasum -a 256"
 
     # 2. The formula is a template: its version, url and sha256 are placeholders.
-    formula = read("packaging/codemyspec-loop.rb")
+    formula = read("packaging/codemyspec.rb")
     assert formula =~ ~s(version "__VERSION__")
     assert formula =~ ~s(url "__URL__")
     assert formula =~ ~s(sha256 "__SHA256__")
@@ -56,7 +56,7 @@ defmodule Workflow.PackagingTest do
     # packaging/README.md gives the same steps, with the same names.
     steps = read("packaging/README.md")
     assert steps =~ "just package"
-    assert steps =~ "packaging/codemyspec-loop.rb"
+    assert steps =~ "packaging/codemyspec.rb"
     assert steps =~ @tarball
     assert steps =~ "`url`"
     assert steps =~ "`sha256`"

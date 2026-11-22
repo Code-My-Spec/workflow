@@ -4,7 +4,7 @@
 # ERTS, no Elixir/Erlang needed) and exposes it as the `workflow` command.
 # A template: `just release` fills in __VERSION__, __URL__ and __SHA256__ and
 # writes the result to the tap (see packaging/README.md).
-class CodemyspecLoop < Formula
+class Codemyspec < Formula
   desc "CodeMySpec loop: runs agents on works, dials the CodeMySpec server"
   homepage "https://codemyspec.com"
   version "__VERSION__"
@@ -33,8 +33,8 @@ class CodemyspecLoop < Formula
     keep_alive true
     # launchd gives a bare PATH; the loop shells out to `claude`, `git` and `just`.
     environment_variables PATH: "#{HOMEBREW_PREFIX}/bin:#{Dir.home}/.local/bin:/usr/bin:/bin"
-    log_path var/"log/codemyspec-loop.log"
-    error_log_path var/"log/codemyspec-loop.log"
+    log_path var/"log/codemyspec.log"
+    error_log_path var/"log/codemyspec.log"
   end
 
   def caveats
