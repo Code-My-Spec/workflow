@@ -19,10 +19,21 @@ certify dir:
     mix workflow.sarif "{{dir}}/exunit.sarif" -- mix test
 
 # Build the prod release and its Homebrew tarball (on an Apple silicon Mac), then
-# print the tarball's path and sha256 for packaging/codemyspec-loop.rb.
-package:
+# print the tarball's path and sha256 for packaging/codemyspec-loop.rb. `app` is
+# the CodeMySpec app's repository: its plugins/phoenix and its interview skill go
+# into the release as the default plugin and instructions that `workflow init` writes.
+package app="":
+    @test -n "{{app}}" || { echo "just package: give the app repository's path: just package <path>" >&2; exit 1; }
+    @test -d "{{app}}" || { echo "just package: the app repository {{app}} does not exist" >&2; exit 1; }
+    @test -f "{{app}}/plugins/phoenix/.claude-plugin/plugin.json" || { echo "just package: {{app}} has no plugin plugins/phoenix (with .claude-plugin/plugin.json)" >&2; exit 1; }
+    @test -f "{{app}}/plugins/claude/directory/skills/interview/SKILL.md" || { echo "just package: {{app}} has no instructions file plugins/claude/directory/skills/interview/SKILL.md" >&2; exit 1; }
+    @# The tarball is public: personal paths, emails (but example.com and its subdomains, yourdomain placeholders and Resend's public resend.dev test addresses) and key-shaped values in what it would carry stop the build, each named by file and line.
+    @found=$(grep -rnoIE -e '/(Users|Volumes|home)/[^ )`"]*' -e '~/(Documents|Desktop|Downloads|github|Projects|src|code|dev)/[^ )`"]*' -e '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' -e '(sk-[A-Za-z0-9]{16,}|sk_(live|test)_[A-Za-z0-9]+|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[abp]-[A-Za-z0-9-]+|whsec_[A-Za-z0-9+/=]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY)' "{{app}}/plugins/phoenix" "{{app}}/plugins/claude/directory/skills/interview/SKILL.md" | grep -vE '@(([A-Za-z0-9-]+\.)*example\.(com|org|net)|yourdomain\.[a-z]+|resend\.dev)$'); if [ -n "$found" ]; then echo "just package: these would ship in the public tarball; clean them in the app repository, then build again:" >&2; echo "$found" >&2; exit 1; fi
     MIX_ENV=prod mix deps.get
     MIX_ENV=prod mix release --overwrite
+    rm -rf _build/prod/rel/workflow/plugin _build/prod/rel/workflow/instructions.md
+    cp -R "{{app}}/plugins/phoenix" _build/prod/rel/workflow/plugin
+    cp "{{app}}/plugins/claude/directory/skills/interview/SKILL.md" _build/prod/rel/workflow/instructions.md
     tar -C _build/prod/rel/workflow -czf _build/codemyspec-loop-darwin-arm64.tar.gz .
     @echo "tarball: {{justfile_directory()}}/_build/codemyspec-loop-darwin-arm64.tar.gz"
     @shasum -a 256 _build/codemyspec-loop-darwin-arm64.tar.gz | cut -d ' ' -f 1 | sed 's/^/sha256: /'

@@ -5,11 +5,13 @@ defmodule Workflow.PackagingTest do
 
   defp read(path), do: File.read!(Path.join(File.cwd!(), path))
 
-  # The lines of a justfile recipe: its header and the indented lines under it.
+  # The lines of a justfile recipe: its header (with or without arguments) and the indented lines under it.
   defp recipe(justfile, name) do
     justfile
     |> String.split("\n")
-    |> Enum.drop_while(&(not String.starts_with?(&1, name <> ":")))
+    |> Enum.drop_while(
+      &(not (String.starts_with?(&1, name <> ":") or String.starts_with?(&1, name <> " ")))
+    )
     |> case do
       [] -> []
       [_header | rest] -> Enum.take_while(rest, &String.starts_with?(&1, "    "))

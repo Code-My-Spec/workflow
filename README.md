@@ -5,10 +5,13 @@
 On an Apple silicon Mac:
 
     brew install codemyspec-loop      # from the tap that holds the formula
-    workflow init --repo /path/to/repo [--plugin DIR] [--server URL --project ID]
+    workflow init --repo /path/to/repo
     workflow sign-in                  # only when init was given a server
 
 `workflow init` writes `~/.workflow/config.json` and refuses to overwrite one.
+It names the plugin and the chat instructions the package carries, so the
+package alone is enough. It also takes `--plugin DIR` (a plugin of your own,
+which wins over the packaged one) and `--server URL --project ID`.
 
 Then install Claude Code (the `claude` command), which brew does not provide,
 and run `claude` once to sign in:
