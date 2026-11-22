@@ -413,7 +413,8 @@ defmodule Workflow.Run do
   # was left a worktree with no works file, never run and never reported. It is
   # kept as in flight before the copy is begun, so one cut short is resumed.
   defp start!(%{"repo" => repo, "id" => id} = work, run) when not is_map_key(work, "root") do
-    if File.dir?(Checkout.root(repo, id)) do
+    # A copy whose copy-setup never passed is half-made: it is made again, here too.
+    if File.dir?(Checkout.root(repo, id)) and not Checkout.copying?(repo, id) do
       copied(work, run)
     else
       fly(work)
