@@ -46,7 +46,7 @@ defmodule Workflow.Report do
         "step" => seen.step,
         "status" => status,
         "commit" => Checkout.commit(root),
-        "at" => now(),
+        "at" => Checkout.now(),
         "machine" => machine(),
         "note" => note(seen),
         # Each test (file and test) that failed in ci's first run and passed in its retry.
@@ -105,7 +105,7 @@ defmodule Workflow.Report do
         "step" => nil,
         "status" => "not started",
         "commit" => commit,
-        "at" => now(),
+        "at" => Checkout.now(),
         "machine" => machine(),
         "note" => nil
       }
@@ -192,6 +192,4 @@ defmodule Workflow.Report do
     {:ok, name} = :inet.gethostname()
     to_string(name)
   end
-
-  defp now, do: DateTime.utc_now() |> DateTime.to_iso8601()
 end

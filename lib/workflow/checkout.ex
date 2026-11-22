@@ -225,10 +225,8 @@ defmodule Workflow.Checkout do
   """
   @spec cancel(String.t(), String.t()) :: :ok
   def cancel(repo, id) do
-    path = path(repo, id)
-    kept = repo |> results(id) |> Map.put("cancelled", %{"at" => now()})
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, Jason.encode!(kept))
+    update(repo, id, &Map.put(&1, "cancelled", %{"at" => now()}))
+    :ok
   end
 
   @doc "Whether the work for `id` was stopped for good; false where `dir` is no git checkout."
@@ -350,10 +348,13 @@ defmodule Workflow.Checkout do
   @spec record(String.t(), String.t(), String.t(), map()) :: :ok
   def record(root, id, step, result) do
     {:ok, head} = git(root, ~w(rev-parse HEAD^{tree}))
-    path = path(root, id)
-    kept = root |> results(id) |> Map.update(head, %{step => result}, &Map.put(&1, step, result))
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, Jason.encode!(kept))
+
+    update(
+      root,
+      id,
+      &Map.update(&1, head, %{step => result}, fn at -> Map.put(at, step, result) end)
+    )
+
     # The one point a report is sent from: the work's whole picture, to the server.
     Workflow.Report.recorded(root, id)
   end
@@ -374,16 +375,13 @@ defmodule Workflow.Checkout do
   """
   @spec keep(String.t(), String.t(), map()) :: :ok
   def keep(root, id, work) do
-    path = path(root, id)
-
-    kept =
-      root
-      |> results(id)
+    update(root, id, fn found ->
+      found
       |> Map.put("work", Map.drop(work, ["agent", "agents"]))
       |> Map.delete("stopped")
+    end)
 
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, Jason.encode!(kept))
+    :ok
   end
 
   @doc """
@@ -397,9 +395,7 @@ defmodule Workflow.Checkout do
     with true <- is_binary(root) and File.dir?(root),
          {:ok, _git_dir} <- git(root, ~w(rev-parse --path-format=absolute --git-common-dir)),
          {:ok, tree} <- git(root, ~w(rev-parse HEAD^{tree})) do
-      found = results(root, id)
-
-      kept =
+      update(root, id, fn found ->
         found
         |> Map.delete("stopped")
         |> then(fn kept ->
@@ -408,8 +404,7 @@ defmodule Workflow.Checkout do
             _none -> kept
           end
         end)
-
-      if kept != found, do: File.write!(path(root, id), Jason.encode!(kept))
+      end)
 
       # `analyse/3` reads a recipe's latest run at the tree rather than run it again:
       # marked afresh, the next makes a new run folder. The evidence is kept.
@@ -426,11 +421,9 @@ defmodule Workflow.Checkout do
   @doc "Keeps why the loop gave up on the work at `step`, until it is handed in again."
   @spec stop(String.t(), String.t(), String.t(), String.t()) :: :ok
   def stop(root, id, step, reason) do
-    path = path(root, id)
     stopped = %{"step" => step, "reason" => reason, "at" => now()}
-    kept = root |> results(id) |> Map.put("stopped", stopped)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, Jason.encode!(kept))
+    update(root, id, &Map.put(&1, "stopped", stopped))
+    :ok
   end
 
   @doc "Why the loop gave up on the work, or `nil` while it has not."
@@ -440,10 +433,8 @@ defmodule Workflow.Checkout do
   @doc "Keeps what the work's owner said to it, beside its results, until an agent's next turn takes it."
   @spec say(String.t(), String.t(), String.t()) :: :ok
   def say(root, id, said) do
-    path = path(root, id)
-    kept = root |> results(id) |> Map.update("said", [said], &(&1 ++ [said]))
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, Jason.encode!(kept))
+    update(root, id, &Map.update(&1, "said", [said], fn was -> was ++ [said] end))
+    :ok
   end
 
   @doc """
@@ -452,17 +443,14 @@ defmodule Workflow.Checkout do
   """
   @spec reject(String.t(), String.t(), String.t()) :: :ok
   def reject(root, id, note) do
-    path = path(root, id)
-    kept = root |> results(id) |> Map.put("rejected", note)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, Jason.encode!(kept))
+    update(root, id, &Map.put(&1, "rejected", note))
+    :ok
   end
 
   @doc "Forgets the owner's rejection note: the coder has had a turn with it."
   @spec answered(String.t(), String.t()) :: :ok
   def answered(root, id) do
-    {rejected, kept} = root |> results(id) |> Map.pop("rejected")
-    if rejected, do: File.write!(path(root, id), Jason.encode!(kept))
+    update(root, id, &Map.delete(&1, "rejected"))
     :ok
   end
 
@@ -477,20 +465,8 @@ defmodule Workflow.Checkout do
   @doc "Everything said to the work since it was last taken, and forgets it, so each is said once."
   @spec heard(String.t(), String.t()) :: [String.t()]
   def heard(root, id) do
-    {said, kept} = root |> results(id) |> Map.pop("said", [])
-    if said != [], do: File.write!(path(root, id), Jason.encode!(kept))
-    said
+    root |> update(id, &Map.delete(&1, "said")) |> Map.get("said", [])
   end
-
-  @doc """
-  Writes `content` at `path` in the checkout and commits that file alone with
-  `message`. A file already there with the same content is left as it is, and
-  nothing is committed.
-  """
-  @spec commit_file(String.t(), String.t(), String.t(), String.t()) ::
-          :ok | :unchanged | {:error, term()}
-  def commit_file(root, path, content, message),
-    do: commit_files(root, [{path, content}], message)
 
   @doc "Writes each `{path, content}` and commits those that changed in one commit, or none if none did."
   @spec commit_files(String.t(), [{String.t(), String.t()}], String.t()) ::
@@ -955,7 +931,9 @@ defmodule Workflow.Checkout do
     Path.join([git_dir, "workflow", "analysis", tree])
   end
 
-  defp now, do: DateTime.utc_now() |> DateTime.to_iso8601()
+  @doc "The time now, in UTC, as ISO 8601: the one clock every result and log line is stamped by."
+  @spec now() :: String.t()
+  def now, do: DateTime.utc_now() |> DateTime.to_iso8601()
 
   defp failed(note), do: %{"status" => "failed", "note" => note}
 
@@ -1198,6 +1176,25 @@ defmodule Workflow.Checkout do
     else
       _none -> %{}
     end
+  end
+
+  # One read, change and write of a work's results file at a time: two updates
+  # close together each read it before the other wrote, and one was lost. The
+  # lock is the file, as ci-last's is. Writes only a change; gives what was found.
+  defp update(root, id, change) do
+    path = path(root, id)
+
+    :global.trans({{__MODULE__, :results, path}, self()}, fn ->
+      found = results(root, id)
+      kept = change.(found)
+
+      if kept != found do
+        File.mkdir_p!(Path.dirname(path))
+        File.write!(path, Jason.encode!(kept))
+      end
+
+      found
+    end)
   end
 
   defp path(root, id) do

@@ -247,8 +247,6 @@ defmodule Workflow.Run do
     end)
   end
 
-  defp now, do: DateTime.utc_now() |> DateTime.to_iso8601()
-
   defp decision(work, key, pass, fail) do
     case work[key] do
       ^pass -> %{"status" => pass}
@@ -696,7 +694,8 @@ defmodule Workflow.Run do
     if step.name == "work", do: Checkout.answered(root, id)
     # Whose commit the tree is, and the commits before the turn that made it, for a
     # template that reads a result by who made it.
-    Checkout.record(root, id, "by", %{"step" => step.name, "at" => now(), "from" => from})
+    Checkout.record(root, id, "by", %{"step" => step.name, "at" => Checkout.now(), "from" => from})
+
     said = Enum.reject([decided["status"], decided["note"] || words], &is_nil/1)
     say(work, "#{step.name} turn by the #{step.actor} ended: #{Enum.join(said, ": ")}")
     work = Map.drop(work, ["review", "demo", "note"])
