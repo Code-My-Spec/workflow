@@ -1,0 +1,18 @@
+id: "decide-refuses-unknown-id"
+kind: "issue"
+title: decide with an unknown id starts a new work
+text: |-
+  Audit item 14 (should fix, checked), as given: `decide` with an unknown id starts a new work (`manager.ex:570-583`, checked). Refuse.
+
+  The effect: when the manager's decide tool is called with an id that has no work waiting on its owner's demo, the loop starts a new work under that id instead of refusing.
+
+  Rules:
+  - Confirm the defect in the code first (lib/workflow/manager.ex, around lines 570-583), and name in the decision note what makes decide start a work.
+  - Make the smallest change that fixes it, with no new options. decide with an id that has no work waiting on its demo is refused with a message naming the id. Nothing is started, recorded, committed or resumed. decide on a work that is waiting on its demo behaves as today.
+  - Add one small test that fails without the fix. It calls decide with an unknown id and shows that the answer is a refusal naming the id, that no works file, checkout, branch or story/issue file is made, and that no agent runs.
+  - Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "`decide` given an id that has no work waiting on its owner's demo is refused with a message naming that id, and no work is started, recorded or resumed"
+  - "`decide` given the id of a work waiting on its owner's demo approves or rejects it as today"
