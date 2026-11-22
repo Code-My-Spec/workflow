@@ -1,0 +1,24 @@
+id: "a-dirty-system-step-says-why"
+kind: "issue"
+title: A system step left by a dirty tree sits silently instead of going back to an agent
+text: |-
+  Fault (seen live at 07:00 on the Smart AI Books loop, running released 3.0.5 code): a work of the flake kind passed certify and review. Then its log said only "[Workflow <id>] left on promote". Its manager was told only that it "is waiting at promote and needs a person. The loop gave no reason." The owner found the cause by hand: the copy had five UNTRACKED files, logs that the reviewer's own `just certify .` run wrote into the checkout. So the system step promote was left by a dirty tree (lib/workflow/run.ex, the comment above to_coder/2: "A system step is left only by a dirty tree").
+
+  Two things are wrong. Confirm each in the code first, and with a test that fails before you fix it.
+
+  (a) to_coder/2 (added by a-killed-turn-does-not-strand-its-work, 88763ab) is meant to send such a work back to its coder with what `git status --short` says. For this work it did not happen: the work just sat on promote. Find why. Possible causes: the flake kind's agent step may not have actor :coder, the provider lookup fails, or the last turn was a reviewer's. Name the cause in the decision note. Make the hand-back work for every kind that has an agent who can commit. A work with no such agent step still stops, as today.
+
+  (b) Whenever a system step is left by a dirty tree and nobody is sent to fix it, the work's log line and what the manager is told must say so, and include the `git status --short` lines, so nobody has to look by hand.
+
+  Rules: do not make promote ignore untracked files, and do not delete anything from a checkout. Only route the work and say why. Keep the existing rule that nothing the system does runs on a dirty tree. Smallest change, no new options. Grep every caller of what you change.
+
+  Check: one test per fix, each in a temporary git repo with a fake agent, each failing when its fix is removed.
+  - (a) A flake-kind work whose tree has untracked files at promote goes back to its committing agent with the `git status --short` text as its note, and does not sit on promote.
+  - (b) A work with no agent step to hand back to, left on a system step by a dirty tree, has a log line and a manager message that say the tree was dirty and contain the `git status --short` lines.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When a system step such as promote finds a dirty tree (including untracked files) and no agent is at work, a work of any kind that has an agent step able to commit, including the flake kind, goes back to that agent with the `git status --short` text as its note, instead of sitting on the step"
+  - "Whenever a system step is left by a dirty tree and nobody is sent to fix it, the work's log line and the message to the manager say the tree was dirty and include the `git status --short` lines"
+  - "The untracked files are not ignored by promote and nothing is deleted from the checkout: the work is only routed and the reason given"
