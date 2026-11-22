@@ -1,0 +1,25 @@
+id: "ci-retries-with-a-retry-recipe"
+kind: "issue"
+title: A ci flake is reported without naming the test
+text: |-
+  Fault: today lib/workflow/checkout.ex (around line 672) runs the whole ci recipe again once after a failure. If that second run passes, it tells the manager the tree was flaky without naming any test. So a flake can't be counted, shown or traced to a test, and the whole suite runs twice.
+
+  Owner's ruling: call the recipe that runs all the tests, then a retry recipe that runs only what failed (for a mix project, `mix test --failed`). That gives us the data, and the flake is detected from the evidence.
+
+  Wanted, as the smallest change that does it:
+  1. After `just ci <dir>` fails, the loop runs `just retry <dir2>` in the same checkout. `retry` is the project's own recipe. A project with no `retry` recipe keeps today's behaviour (run ci again), so the other loops don't regress.
+  2. Both runs' results are kept as evidence, first run and retry side by side in their own dirs. Neither overwrites the other.
+  3. The flake is detected from that evidence, not from exit codes alone. A test that failed in the first run's sarif and passed in the retry is a flake. Its name (file and test) goes in the message to the manager and in the work's report to the server, so it can be counted and shown.
+  4. When retry fails, the tree is red, as now.
+  5. Document the retry recipe contract (its argument, that it runs only what failed, where its sarif goes) where the ci recipe contract is documented in the README.
+
+  Keep it small: no new store and no flake database. The evidence files and the report are the record.
+
+  Check: tests in temporary git repos with fake ci and retry recipes that write sarif. They show: with a retry recipe, a failing ci is followed by `just retry` in the same checkout, not ci again; with no retry recipe, ci runs again as today; both runs' evidence dirs exist side by side afterwards; a test failing in the first sarif and passing in the retry is named (file and test) in the manager's message and in the server report; and a failing retry leaves the tree red.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "After `just ci <dir>` fails in a project with a `retry` recipe, the loop runs `just retry <dir2>` in the same checkout instead of running ci again; in a project with no `retry` recipe it runs ci again, as today"
+  - "The first run's and the retry's results are both kept as evidence, side by side in separate dirs, and neither is overwritten"
+  - "A test that failed in the first run's sarif and passed in the retry is reported as a flake: its file and test name appear in the message to the manager and in the work's report to the server"
+  - "When the retry fails, the tree is red, as today"
