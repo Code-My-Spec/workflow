@@ -1,0 +1,21 @@
+id: "run-tests-wait-for-the-run"
+kind: "issue"
+title: Tests that wait on a clock for a run to end fail under load
+text: |-
+  Fault: at tree b9fad6e92b00bd52554918fb2665b4186133b6d0, `just certify` failed, then passed when run again at the same tree. Both runs are kept: /Volumes/X10 Pro/github/workflow/.git/workflow/analysis/b9fad6e92b00bd52554918fb2665b4186133b6d0/1795330409 (failed) and .../1795330562 (passed).
+
+  The first run's failure: test agents-commit-no-ignored-files: a tree dirty only in tracked ignored paths tells the agent which, and to git rm --cached them (Workflow.RunTest, test/workflow/run_test.exs:910). `assert_receive {:ran, _first}` found no matching message after the default 100ms. The mailbox held 74 messages, all git calls (rev-list --count --no-merges trunk..HEAD, status, rev-parse --git-common-dir).
+
+  The cause, shown by no-stalls-tests-are-flaky (landed as ec89ba9): a test waits on a clock for a run to end instead of waiting on the run. Workflow.Run.start/1 returns once it has started the background watch task, the agent stand-in is called later from the turns process, and the test gives that background work a fixed receive deadline. ec89ba9 fixed only the two no-stalls tests, by adding settled/0 (wait for every process with the test in its $callers to go down) and then checking with assert_received. Confirm this in the code first.
+
+  Wanted (owner's direction): do not fix only the test at run_test.exs:910. Find every test in the whole suite that waits on a timed assert_receive or a sleep for a run to end, and make each one wait on the run itself, as ec89ba9 did (reuse settled/0 where it fits). List every test you changed in the decision note. If the cause turns out to be in lib/, fix it there and say so.
+
+  Rules: no longer timeouts, no retries, no assertion dropped. Don't delete, weaken, skip or exclude any test. No new options. Smallest change.
+
+  Check: run the changed tests repeatedly (for example --repeat-until-failure 100) and the full suite several times, and report the counts in the decision note. Show that each changed test still fails when the behaviour it guards is broken.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "The 'agents-commit-no-ignored-files: a tree dirty only in tracked ignored paths tells the agent which, and to git rm --cached them' test in test/workflow/run_test.exs passes on every run of the full suite at the same tree"
+  - "Every test in the suite that waited on a timed assert_receive or a sleep for a run to end now waits on the run itself and passes on every run of the full suite at the same tree"
+  - "Each changed test still fails when the behaviour it guards is broken"
