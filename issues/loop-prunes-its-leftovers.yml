@@ -1,0 +1,20 @@
+id: "loop-prunes-its-leftovers"
+kind: "issue"
+title: Nothing is pruned, and the manager dies when its conversation outgrows the context
+text: |-
+  Audit item 16 (should fix), as given: Nothing is pruned: `.git/workflow` 1.0 GB in three days; the manager dies when its conversation outgrows the context.
+
+  The effect: everything the loop writes under .git/workflow (analysis run folders, conversations, logs) stays forever, so the folder grows without limit. And the manager's conversation is kept whole, so once it outgrows the model's context the manager stops working.
+
+  Rules:
+  - Confirm both defects in the code first. Name in the decision note what is written under .git/workflow and by whom, and where the manager's conversation is kept and replayed.
+  - Make the smallest change that fixes each, with no new options and no new store.
+  - Pruning: when a work lands or is stopped, remove what belongs only to it under .git/workflow (its analysis run folders and its conversation file). Keep everything a running or waiting work still needs, including its logs and the evidence a stop note or `look` points at. If something must outlive the work (for example evidence the owner reads after a landing), say in the decision note what you kept and why, rather than guessing a retention period.
+  - Manager context: when the manager's conversation would outgrow the context, its next turn must still run (for example by starting from a bounded tail of the conversation or a fresh one). Choose the smallest honest way and say in the decision note exactly what is kept and what is dropped.
+  - Add one small test per defect that fails without the fix: a work that lands (and one that is stopped) leaves no analysis folder or conversation of its own behind, while a running work's are kept; and a manager conversation longer than the bound still gets a turn that answers. Tests use temporary folders and a fake agent, never the real .git/workflow.
+  - Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When a work lands or is stopped, its leftovers under .git/workflow (its analysis run folders and its conversation file) are removed, and a running or waiting work's leftovers are kept"
+  - "When the manager's conversation grows past what fits in the context, the manager's next turn still runs and answers, instead of the manager dying"
