@@ -1,0 +1,18 @@
+id: "landed-means-merged"
+kind: "issue"
+title: The issue's own hand-in commit reads as landed
+text: |-
+  Audit item 8 (must fix, checked), as given: `lib/workflow/checkout.ex:214-226` `commits_merged?/2` matches any commit subject starting `<kind> <id>: `, so the "issue as handed in" commit reads as landed.
+
+  The effect: the commit that records a work's issue file on main (whose subject starts `<kind> <id>: `) makes commits_merged?/2 say the work's commits are merged, even though none of its fix commits have reached main.
+
+  Rules:
+  - Confirm the defect in the code first, and name in the decision note what makes the match too wide.
+  - Make the smallest change that fixes it, with no new options. Landed must mean that the work's own commits are merged into main.
+  - Add one small test that fails without the fix: a temporary git repo whose main has only the 'issue as handed in' commit for a work, with the work's fix commit on its branch not merged. The test shows that this is not landed, and that after the branch merges it is.
+  - Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A work whose only commit on main is its 'issue as handed in' commit (subject starting `<kind> <id>: `) is not reported as landed"
+  - "A work whose fix commits are merged into main is reported as landed, as today"
