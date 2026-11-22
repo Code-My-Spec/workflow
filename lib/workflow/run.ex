@@ -448,6 +448,8 @@ defmodule Workflow.Run do
   end
 
   defp owned!(work, run) do
+    # Whose turn it was when the service went down, kept in flight by `turn/5`.
+    {turn, work} = Map.pop(work, "turn")
     # Handed in again: what the checks found at this tree before is not reused.
     Checkout.afresh(work["root"], work["id"])
 
@@ -455,17 +457,56 @@ defmodule Workflow.Run do
     # killed or timed out mid-step took `just` down with it, and nothing was said.
     with %{} <- prepared(work),
          _said <- say(work, "handed in"),
+         nil <- kept_turn(turn, work),
          %{} = step <- system_step(work) do
       run.(fn -> watch(step, work) end)
       {step, "started"}
     else
       :none -> {:none, nil}
       nil -> started(advanced(work), work)
+      %{agent: _} = turn -> started(turn, work)
     end
   end
 
+  # Seen live: a service stopped while the coder answered a failed review came
+  # back on certify, and stopped there dirty. A start runs certify afresh at the
+  # tree, and certify comes before the review that failed there, so the work read
+  # as on certify, and nothing kept said whose turn it was. The agent whose turn
+  # it was is given it back, with the note it was given.
+  defp kept_turn(%{"step" => name} = turn, %{"kind" => kind}) do
+    if step = Enum.find(@templates[kind].steps(), &(&1.name == name and is_map_key(&1, :agent))),
+      do: agent_step(step, turn["note"])
+  end
+
+  defp kept_turn(_none, _work), do: nil
+
+  defp agent_step(definition, note),
+    do: definition |> Map.take([:name, :actor, :agent]) |> Map.put(:note, note)
+
+  # A system step is left only by a dirty tree. With no agent at work in the
+  # checkout nobody would commit it and the work would sit: it goes to its coder,
+  # told what git says is uncommitted, as an agent that left changes is told to
+  # commit them (see `uncommitted/3`). One with no coder to run is stopped.
+  # Seen live: a service restarted under an agent mid-edit stranded the work.
+  defp to_coder(%{actor: :system} = step, %{"kind" => kind, "root" => root} = work)
+       when not is_map_key(step, :stop) do
+    coder = Enum.find(@templates[kind].steps(), &(&1.actor == :coder))
+
+    if coder && match?({:ok, _provider}, Agents.provider(coder, work)),
+      do:
+        agent_step(
+          coder,
+          "These changes in #{root} are uncommitted, and no agent is at work on them. " <>
+            "`git status --short` says:\n\n#{Checkout.status(root)}\n" <>
+            "Finish them or drop them, commit with git, then end your turn."
+        ),
+      else: step
+  end
+
+  defp to_coder(step, _work), do: step
+
   defp started(step, work) do
-    case step do
+    case to_coder(step, work) do
       # A step the template says nobody can act on: the work is stopped, saying why.
       %{stop: true, note: note} = step ->
         stop(work, step, "stopped: #{note}")
@@ -486,8 +527,7 @@ defmodule Workflow.Run do
             {step, "not started: #{reason}"}
         end
 
-      # A system step is left only by a dirty tree. With no agent at work in the
-      # checkout nobody will commit it and the work would sit: it is stopped.
+      # A dirty tree with no coder to give it to (see `to_coder/2`): it is stopped.
       # Seen live: a service restarted under an agent mid-edit dropped the work.
       %{actor: :system} = step ->
         reason = dirty(work["root"])
@@ -547,7 +587,7 @@ defmodule Workflow.Run do
   # The system's steps, run under the checkout's lock with the work in flight,
   # and what they leave it on taken as `start/1` would have.
   defp system(%{"id" => id, "root" => root} = work) do
-    case step(work) do
+    case to_coder(step(work), work) do
       %{stop: true, note: note} = step ->
         stop(work, step, "stopped: #{note}")
 
@@ -619,6 +659,8 @@ defmodule Workflow.Run do
       end
 
     if times < 3, do: say(work, "#{step.name} started (#{step.actor})")
+    # Whose turn it is, kept in flight so a restart gives it back (see `kept_turn/2`).
+    fly(Map.put(work, "turn", %{"step" => step.name, "note" => step.note}))
 
     case times < 3 && agent_turn(step, work) do
       false ->
@@ -658,6 +700,8 @@ defmodule Workflow.Run do
     said = Enum.reject([decided["status"], decided["note"] || words], &is_nil/1)
     say(work, "#{step.name} turn by the #{step.actor} ended: #{Enum.join(said, ": ")}")
     work = Map.drop(work, ["review", "demo", "note"])
+    # The turn is over: none is kept in flight to be given back.
+    fly(work)
 
     case uncommitted(step, root, id) || recheck(step, work, elem(seen, 2)) || step(work) do
       # The check run again at the unchanged tree failed again: it waits, as a third send would.
