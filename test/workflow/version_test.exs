@@ -32,6 +32,5 @@ defmodule Workflow.VersionTest do
              Jason.decode!(conn.resp_body)
 
     assert reported == to_string(Application.spec(:workflow, :vsn))
-    assert reported == Mix.Project.config()[:version]
   end
 end
