@@ -1,0 +1,19 @@
+id: "ci-blame-per-landing"
+kind: "issue"
+title: Two close landings swap ci blame through the shared ci-last
+text: |-
+  Audit item 15 (should fix), as given: Two close landings swap CI blame through the shared `ci-last` (`checkout.ex:877-960`).
+
+  The effect: ci results are kept in one shared `ci-last` place. When two works land close together, one landing's ci run can read or overwrite the other's result, so a red ci is blamed on the wrong work (and a green one credited to the wrong work).
+
+  Rules:
+  - Confirm the defect in the code first (lib/workflow/checkout.ex, around lines 877-960). Name in the decision note how ci-last is shared and how two landings swap blame through it.
+  - Make the smallest change that fixes it, with no new options and no new store. Each landing's ci result must belong to the commit ci ran on, and blame (the message to the manager, and any work stopped or sent back) goes to that landing only.
+  - Add one small test that fails without the fix. Two landings close together, the first one's ci red and the second's green (or the reverse), with fake ci recipes in temporary git repos. The test shows each result is blamed on its own landing and neither overwrites the other.
+  - Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When two works land close together and one landing's ci fails, the red result and its failures are blamed on the landing whose commit ci ran on, never on the other"
+  - "Each landing's ci result names the commit it was run on, and a later landing's ci run does not overwrite an earlier landing's result"
+  - "A single landing's ci result, green or red, is reported as today"
