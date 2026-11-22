@@ -1,0 +1,21 @@
+id: "retry-is-told-the-first-run"
+kind: "issue"
+title: The retry recipe cannot see what the first ci run left
+text: |-
+  Fault (in ci-retries-with-a-retry-recipe, landed as ff8f1dd): the loop runs the project's retry recipe in a run folder of its own and gives it only that folder. So the recipe cannot see what the first run left (its meta.json and SARIF), and a project that wants to re-run only the failures cannot know which ones failed.
+
+  Wanted, as the smallest change that does it, with no new options:
+  1. The loop calls the recipe as `just retry <dir> <first run dir>`. The first argument is the retry's own run folder, as now. The second is the first run's folder, which the recipe reads but must not change.
+  2. Nothing else changes: both runs are kept side by side, flakes are detected and named to the manager as now, a failing retry is red, and a project with no retry recipe runs ci again as today.
+  3. Update the README line on the retry recipe contract to name the second argument and that it is read-only to the recipe.
+  4. Update the test stand-ins (the fake retry recipes) to take the second argument.
+
+  Confirm in the code first where the retry recipe is called (lib/workflow/checkout.ex, the retry path), and name it in the decision note.
+
+  Check: one small test that fails without the fix. A fake retry recipe records its arguments and reads the first run's SARIF through the second argument. The test shows the second argument is the first run's folder, that the recipe could read the first run's SARIF from it, and that the first run's folder is unchanged afterwards. Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "After `just ci <dir>` fails in a project with a `retry` recipe, the loop runs `just retry <dir2> <first run dir>`, where the second argument is the first run's folder holding its meta.json and SARIF"
+  - "The first run's folder is unchanged after the retry runs, and both runs are still kept side by side"
+  - "Flaky tests are still named to the manager as today, and a project with no retry recipe still runs ci again"
