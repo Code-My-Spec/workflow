@@ -13,7 +13,8 @@ defmodule Workflow.ConfigFile do
     * `"recipients"`: who messages go to and how (see `Workflow.Messages`).
     * `"instructions"`: the path of a text file, the brief given to a chat in the
       answer to MCP `initialize`. Front matter (a block between two `---` lines
-      at its start) is dropped. A file that is not there stops the boot.
+      at its start) is dropped. A file that is not there stops the boot. With
+      none, a release uses its packaged `instructions.md` (under `RELEASE_ROOT`).
     * `"push"`: `{"remote": ..., "branch": ...}`, where the main copy is pushed
       after a work lands. Each defaults to `"origin"` and `"dev"`. A main copy
       without that remote pushes nothing.
@@ -23,7 +24,8 @@ defmodule Workflow.ConfigFile do
     * `"plugin"`: a Claude Code plugin folder (see `Workflow.Plugin`), absolute
       or read against the manager's `"repo"`. Each agent is given its
       `skills/<role>`. One that names no folder, or a folder with no
-      `.claude-plugin/plugin.json`, stops the boot.
+      `.claude-plugin/plugin.json`, stops the boot. With none, a release uses
+      its packaged `plugin/` (under `RELEASE_ROOT`).
     * `"skills"`, in any agent entry (the manager's `"agent"`, each role under
       its `"agents"`, each recipient): a list of skill folders (see
       `Workflow.Skills`). One without a readable SKILL.md that has a name and a
@@ -108,7 +110,13 @@ defmodule Workflow.ConfigFile do
   end
 
   # The plugin, kept as an absolute folder; one that is not a plugin stops the boot.
-  defp plugin(nil, _root), do: :ok
+  # With none named, the running release's packaged one, when it has one.
+  defp plugin(nil, root) do
+    case packaged("plugin") do
+      nil -> :ok
+      dir -> plugin(dir, root)
+    end
+  end
 
   defp plugin(named, root) do
     with {:ok, dir} <- Workflow.Plugin.check(named, root) do
@@ -131,7 +139,13 @@ defmodule Workflow.ConfigFile do
   end
 
   # The brief a connecting chat is given: the named file's text, without any front matter.
-  defp instructions(nil), do: :ok
+  # With none named, the running release's packaged instructions.md, when it has one.
+  defp instructions(nil) do
+    case packaged("instructions.md") do
+      nil -> :ok
+      brief -> instructions(brief)
+    end
+  end
 
   defp instructions("" <> brief) do
     if Application.get_env(:workflow, :instructions) != nil do
@@ -152,6 +166,18 @@ defmodule Workflow.ConfigFile do
 
   defp instructions(_other),
     do: {:error, "config file #{path()}: \"instructions\" must be the path of a file"}
+
+  # What `just package` put at the running release's root (`RELEASE_ROOT`), found
+  # at each boot, so it follows the installed version across upgrades.
+  defp packaged(name) do
+    with "" <> root <- System.get_env("RELEASE_ROOT"),
+         path = Path.join(root, name),
+         true <- File.exists?(path) do
+      path
+    else
+      _none -> nil
+    end
+  end
 
   # A skill's front matter: a block between two `---` lines at the very start.
   defp strip_front_matter(text),

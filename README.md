@@ -9,9 +9,16 @@ On an Apple silicon Mac:
     workflow sign-in                  # only when init was given a server
 
 `workflow init` writes `~/.workflow/config.json` and refuses to overwrite one.
-It names the plugin and the chat instructions the package carries, so the
-package alone is enough. It also takes `--plugin DIR` (a plugin of your own,
-which wins over the packaged one) and `--server URL --project ID`.
+Init leaves the packaged plugin and chat instructions out of config.json: the
+loop finds them in the installed package at each start, so the package alone is
+enough and they follow the installed version across upgrades; `brew upgrade`
+needs no new init. It also takes `--plugin DIR` (a plugin of your own, written
+into config.json, which wins over the packaged one) and `--server URL --project ID`.
+
+A config.json written by 3.0.1's init names that version's Cellar folder for
+`"plugin"` and `"instructions"`. Once an upgrade removes it, the service stops
+at start naming the missing path: delete those two keys from config.json and
+start it again to use the installed version's.
 
 Then install Claude Code (the `claude` command), which brew does not provide,
 and run `claude` once to sign in:
