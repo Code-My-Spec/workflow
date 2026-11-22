@@ -1,0 +1,22 @@
+id: "an-old-server-is-not-hammered"
+kind: "issue"
+title: A server that crashes on 'report' is rejoined and crashed many times a second
+text: |-
+  Fault (seen live at 03:11 against a production server): the loop joined its channel, and on join it pushed a "report" for each work in flight (lib/workflow/server.ex, around lines 88-91). That server runs an older app whose LoopChannel has no clause for "report", so the channel process crashed. The loop logged: closed: {:error, %{"reason" => "channel_crash"}}. The loop rejoined at once, reported again and crashed it again: 63 crashes in 35 seconds, with no pause, until the owner stopped the service. A loop must never do that to a server.
+
+  Confirm in the code first: where the loop pushes reports on join, how it handles a channel close, and how and when it rejoins. Name them in the decision note.
+
+  Wanted, as the smallest change that fixes it, with no new config option:
+  1. When the channel closes with channel_crash straight after the loop pushed a report, the loop takes it that this server does not take reports. It pushes no more reports on this connection for the life of the process, and logs that once as a warning. "say" keeps working.
+  2. Rejoining after any channel close waits, with a growing pause up to a cap. Use what the socket client library already offers for this if it offers it, and say in the decision note which one you used. No cause can make the loop rejoin several times a second.
+
+  Check: two tests, with a fake socket or channel, no network.
+  - A crash right after a report stops further reports (none pushed on later joins), the warning is logged once, and a say still gets its answer.
+  - Repeated closes are spaced out with a growing pause up to the cap. No sleeps in tests: inject or read the delay.
+  Each test must fail without the fix. Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When the channel closes with channel_crash straight after the loop pushed a report, the loop pushes no more reports on that connection for the life of the process, and logs one warning saying so"
+  - "After such a crash, `say` still works and its answer arrives"
+  - "Rejoining after any channel close waits, with a pause that grows on each close up to a cap, so the loop never rejoins several times a second"
