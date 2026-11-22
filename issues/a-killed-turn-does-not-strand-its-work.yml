@@ -1,0 +1,24 @@
+id: "a-killed-turn-does-not-strand-its-work"
+kind: "issue"
+title: A restart during a coder's turn strands its work on a dirty tree
+text: |-
+  Fault (seen live at 03:11 and again at 03:27 on another project's loop): a review failed a work at 02:58, and its coder went back to fixing. The service was stopped while that coder was mid-edit, with one tracked file modified and not committed. On every start since, the work comes back on its system step `certify`. In lib/workflow/run.ex, `system/1` reaches `stop(work, step, dirty(root))` and logs "certify stopped: uncommitted changes in <root> and no agent at work on them". Handing the work in again stops it the same way, so it is stranded until a person edits the copy by hand. A restart must never strand a work.
+
+  Two things to find and fix, each the smallest way, with no new option:
+  1. Find why a work whose review failed and whose coder was working resumes on `certify` instead of on the coder's step. Name the cause in the decision note. The kept state must say whose turn it was when the service died, and resume must give the turn back to that agent.
+  2. When a system step does find a dirty tree with no agent at work, the work goes to its coder step. The note is the `git status --short` text, telling the coder to finish or drop these changes, commit, and hand back. Do it the way the code near run.ex line 577 already tells an agent to commit what it left. The work stops only if it has no agent step to give the tree to.
+
+  Keep the existing rule that nothing the system does runs on a dirty tree.
+
+  Confirm both defects in the code first.
+
+  Check: two tests, in temporary git repos with a fake agent, each failing without the fix.
+  - A work killed mid coder turn after a failed review resumes with its coder on restart, not on certify.
+  - A dirty tree at a system step with no agent at work goes to the coder with the status text as its note, and the work does not stop.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A work whose review failed and whose coder was mid-turn when the service stopped resumes, on restart, with its coder's step, not on a system step"
+  - "When a system step finds a dirty tree and no agent is at work on it, the work goes to its coder step with a note holding the `git status --short` text, telling the coder to finish or drop those changes, commit and hand back, and the work does not stop"
+  - "No system step runs its command on a dirty tree, and a work with no agent step to give a dirty tree to still stops as today"
