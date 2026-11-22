@@ -31,6 +31,8 @@ defmodule Workflow.VersionTest do
     assert %{"result" => %{"serverInfo" => %{"version" => reported}}} =
              Jason.decode!(conn.resp_body)
 
-    assert reported == to_string(Application.spec(:workflow, :vsn))
+    vsn = to_string(Application.spec(:workflow, :vsn))
+    assert {:ok, _} = Version.parse(vsn)
+    assert reported == vsn
   end
 end
