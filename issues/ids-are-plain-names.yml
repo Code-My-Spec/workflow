@@ -1,0 +1,18 @@
+id: "ids-are-plain-names"
+kind: "issue"
+title: Work ids and inbox names become paths unchecked
+text: |-
+  Audit item 9 (must fix, checked), as given: Work ids and inbox names become paths unchecked. One check at every door they enter: letters, digits, dashes; refuse the rest.
+
+  The effect: an id or inbox name such as `../x` or `a/b` is turned into a file path, a branch name or a checkout folder with no check, so it can reach outside the place it belongs.
+
+  Rules:
+  - Confirm the defect in the code first. List in the decision note every door where a work id or an inbox name enters (manager tools such as hand_in, look, tell, stop and decide, the HTTP API, the inbox, and anywhere else you find).
+  - Make the smallest change that fixes it, with no new options: one check, in one place, called at each of those doors. It allows only letters, digits and dashes and refuses everything else, with a message naming the bad id. Nothing is written or created for a refused id.
+  - Add one small test that fails without the fix. It shows that a bad id (for example `../x`) is refused at a door, that nothing is created from it, and that a plain id still works.
+  - Don't weaken or delete any existing test. Existing ids are already plain names.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A work id or inbox name made only of letters, digits and dashes is accepted at every door it enters, as today"
+  - "A work id or inbox name holding any other character (such as /, .., a space or a dot) is refused at every door it enters, with a message naming the bad id, and no file, branch or checkout is made from it"
