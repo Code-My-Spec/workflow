@@ -1,0 +1,15 @@
+id: "second-hand-in-keeps-the-first-text"
+kind: "issue"
+title: Handing in an issue again under its id silently keeps the old text
+text: |-
+  Fault: handing in an issue again under an id that already has a recorded file (issues/<id>.yml) silently kept the old recorded text and resumed the old conversation. The owner's new direction was lost twice today: ci-uploads-evidence was handed in again with a new folder contract, but its recorded file still held the first text, so the coder kept following the old instructions.
+
+  Wanted, as the smallest change that does it: when an issue is handed in under an id whose recorded file holds different text, the hand-in does what the journey rule already does for a journey handed in again with different content. Read the journey rule in the hand-in path and use the same behavior for consistency. As the owner understands it, journeys are refused and the refusal says so. The hand_in answer says plainly that the text differs from the recorded file, and the recorded file and its conversation are left as they were. If the journey rule actually replaces the recorded content instead, do that and say in the answer that the text was replaced. Either way, name in the decision note which rule you followed. A hand-in again whose text matches the recorded file behaves as it does today.
+
+  Check: one test that records an issue, then hands it in again under the same id with different text. It shows that the answer names the outcome (refused because the text differs, matching the journey rule), that the recorded file still holds the first text, and that no work started or resumed. A second hand-in with the same text resumes as it does today.
+
+  Do not tag or publish anything.
+criteria:
+  - "Handing in an issue under an id whose recorded file holds different text gets the same treatment as a journey handed in again with different content, and the hand_in answer says the text differs"
+  - "When that hand-in is refused, the recorded issue file keeps its first text and no work starts or resumes"
+  - "Handing in an issue again with the same text as its recorded file behaves as it does today"
