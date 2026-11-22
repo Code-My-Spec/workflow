@@ -7,13 +7,16 @@ defmodule Workflow.Init do
     * `--repo PATH`: the git checkout the manager works in (default: the
       current directory);
     * `--plugin DIR`: a Claude Code plugin folder, holding
-      `.claude-plugin/plugin.json` (optional);
+      `.claude-plugin/plugin.json` (optional; default: the release's packaged
+      `plugin/`, when there is one);
     * `--server URL` and `--project ID`: the server the loop dials and its
       project, both or neither.
 
   The file names a manager on claude-code for the repo, the coder, reviewer
   and qa agents on claude-code with no model, a chat recipient `"me"`, and
-  the plugin and server only when given. An existing file is never
+  the plugin and server only when given. Run from a release (`RELEASE_ROOT`),
+  it also names the release's packaged `instructions.md`, and its packaged
+  `plugin/` when no `--plugin` is given. An existing file is never
   overwritten, and a bad flag writes nothing.
   """
 
@@ -55,6 +58,7 @@ defmodule Workflow.Init do
           "recipients" => %{"me" => %{"kind" => "chat"}}
         }
         |> put("plugin", plugin)
+        |> put("instructions", packaged("instructions.md"))
         |> put("server", server)
 
       json = Jason.encode!(config, pretty: true)
@@ -106,12 +110,30 @@ defmodule Workflow.Init do
     end
   end
 
-  defp plugin(nil, _cwd, _repo), do: {:ok, nil}
+  defp plugin(nil, _cwd, repo) do
+    with "" <> dir <- packaged("plugin"),
+         {:ok, dir} <- Workflow.Plugin.check(dir, repo) do
+      {:ok, dir}
+    else
+      _none -> {:ok, nil}
+    end
+  end
 
   defp plugin(dir, cwd, repo) do
     case Workflow.Plugin.check(Path.expand(dir, cwd), repo) do
       {:ok, dir} -> {:ok, dir}
       {:error, why} -> {:error, "--plugin: #{why}"}
+    end
+  end
+
+  # What `just package` put at the release's root, found from the release itself.
+  defp packaged(name) do
+    with "" <> root <- System.get_env("RELEASE_ROOT"),
+         path = Path.join(root, name),
+         true <- File.exists?(path) do
+      path
+    else
+      _none -> nil
     end
   end
 

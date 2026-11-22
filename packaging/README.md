@@ -7,9 +7,16 @@ the `workflow` command.
 ## Build (Apple silicon Mac, with Elixir and just installed)
 
 1. Check out the commit tagged `v3.0.0`, so the release reports version 3.0.0.
-2. In the repository's root, run:
+2. In the repository's root, run, giving the CodeMySpec app's repository:
 
-       just package
+       just package /path/to/code_my_spec-phx-new-generator
+
+   It copies that repository's `plugins/phoenix` (into the release as
+   `plugin/`) and `plugins/claude/directory/skills/interview/SKILL.md` (as
+   `instructions.md`), which `workflow init` names by default. With no path, a
+   path that does not exist, or a path missing either one, it stops, names what
+   is missing, and builds no tarball. Check both for secrets, personal paths,
+   emails and names before you build, since the tarball is public.
 
    It builds the prod release, makes
    `_build/codemyspec-loop-darwin-arm64.tar.gz` from it, and prints the
