@@ -1,0 +1,20 @@
+id: "restart-survives-an-interrupted-copy"
+kind: "issue"
+title: A restart during copy-setup kills the work and holds its slot
+text: |-
+  Fault (seen live): the owner restarted the service while a work was in its copy-setup. When the service picked the work up again, Workflow.Checkout.cut/5 (lib/workflow/checkout.ex:66) raised a MatchError, because `git worktree add` answered "fatal: a branch named issue/<id> already exists". cut/5 is called from copied/2 (lib/workflow/run.ex:431), which is reached through owned/1 (run.ex:79). The task died, the work stayed counted as in flight and kept holding a slot, and nobody was told.
+
+  Wanted, as the smallest change that fixes it, with no new options: when a work was cut short anywhere while its copy was being made, a restart picks it up again cleanly. It does this by making the copy afresh, and never by treating a half-made copy as finished. The relevant code is around run.ex lines 415-425 and checkout.ex lines 33-41. There are two cases:
+  1. The branch was made but there is no worktree.
+  2. The worktree was made but copy-setup did not finish.
+  In both cases the work's copy is made again from the start, copy-setup runs to the end, and the work goes on to its first step. It does not raise, it does not sit in flight holding a slot, and it does not skip copy-setup.
+
+  Confirm the defect in the code first. In the decision note, name what makes cut/5 raise, and how the loop tells a finished copy from a half-made one.
+
+  Check: one small test per case, each in a temporary git repo with a fake copy-setup, and each failing without the fix. Case 1: a leftover issue/<id> branch with no worktree. On pick-up, the copy is made afresh, copy-setup runs, and the work reaches its first step with no MatchError. Case 2: a leftover worktree whose copy-setup never finished. On pick-up, it is not reused as finished, copy-setup runs again, and the work reaches its first step. Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A work whose branch issue/<id> exists but has no worktree, picked up on restart, has its copy made afresh, runs copy-setup and reaches its first step, without raising"
+  - "A work whose worktree exists but whose copy-setup did not finish, picked up on restart, is not reused as finished: copy-setup runs again to the end and the work reaches its first step"
+  - "A work interrupted while making its copy never stays in flight holding a slot after a restart"
