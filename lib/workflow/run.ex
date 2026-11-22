@@ -387,7 +387,9 @@ defmodule Workflow.Run do
     end
   end
 
-  defp start!(work, run), do: owned!(work, run)
+  # A copy cut just now has not landed; one already made, resumed or handed in
+  # again, may have (see `merged/1`).
+  defp start!(work, run), do: owned!(work, run, merged(work))
 
   # Resolved once, so an agent's step and the turns after it run in the same checkout.
   # A copy-setup that fails is landed and said as any step's stop is; nothing is left
@@ -399,7 +401,7 @@ defmodule Workflow.Run do
         {step, "stopped: #{note}"}
 
       owned ->
-        case owned!(owned, run) do
+        case owned!(owned, run, nil) do
           {_step, "started"} = started ->
             started
 
@@ -411,16 +413,18 @@ defmodule Workflow.Run do
     end
   end
 
-  defp owned!(work, run) do
+  defp owned!(work, run, landed) do
     # Whose turn it was when the service went down, kept in flight by `turn/5`.
     {turn, work} = Map.pop(work, "turn")
     # Handed in again: what the checks found at this tree before is not reused.
-    Checkout.afresh(work["root"], work["id"])
+    # A landed work's are kept: they are what it landed on.
+    if is_nil(landed), do: Checkout.afresh(work["root"], work["id"])
 
     # A system step is run in the watched process, not the caller's: a caller
     # killed or timed out mid-step took `just` down with it, and nothing was said.
     with %{} <- prepared(work),
          _said <- say(work, "handed in"),
+         nil <- landed,
          nil <- kept_turn(turn, work),
          %{} = step <- system_step(work) do
       run.(fn -> watch(step, work) end)
@@ -429,8 +433,49 @@ defmodule Workflow.Run do
       :none -> {:none, nil}
       nil -> started(advanced(work), work)
       %{agent: _} = turn -> started(turn, work)
+      {:landed, step} -> at_ci(step, work)
     end
   end
+
+  # Seen live: two works landed and waiting on ci were restarted; `afresh` above
+  # forgot certify at the tree they landed at, so certify ran again, merged main
+  # in, and left them at a tree with no results, back on fix. A work whose
+  # commits are all merged into the main copy (`Workflow.Checkout.landed?/3`) is
+  # at its ci step, and only its ci event, recorded or not, says where it goes.
+  # Asked of the repository it was cut from, as the manager asks it.
+  defp merged(%{"kind" => kind, "id" => id, "root" => root, "repo" => repo}) do
+    with %{commits: 0, dirty?: false} = snapshot <- Checkout.snapshot(root, id),
+         true <- Checkout.landed?(repo, kind, id) do
+      steps = @templates[kind].steps()
+      coder = Enum.find(steps, &(&1.actor == :coder))
+
+      case Workflow.Parts.ci(snapshot, coder.name) do
+        :done -> {:landed, nil}
+        {:to, _back, %{note: note}} -> {:landed, agent_step(coder, note)}
+        %{note: note} -> {:landed, Map.put(Workflow.Parts.ci_step(), :note, note)}
+      end
+    else
+      _not_landed -> nil
+    end
+  end
+
+  defp merged(_no_repo), do: nil
+
+  # Done on its ci verdict; waiting on its ci event, kept in flight as `left/2`
+  # keeps it so the event finds it; or back to its coder on a red verdict.
+  defp at_ci(nil, work) do
+    disown(work)
+    left(work, nil)
+    {nil, nil}
+  end
+
+  defp at_ci(%{actor: :external} = step, work) do
+    fly(work)
+    left(work, step)
+    {step, "waiting"}
+  end
+
+  defp at_ci(step, work), do: started(step, work)
 
   # Seen live: a service stopped while the coder answered a failed review came
   # back on certify, and stopped there dirty. A start runs certify afresh at the
@@ -739,8 +784,10 @@ defmodule Workflow.Run do
   def resume do
     for file <- Path.wildcard(Path.join(works_dir(), "*.json")),
         {:ok, %{} = work} <- [file |> File.read!() |> Jason.decode()] do
-      # Done, the owner's, or not runnable: no longer in flight.
-      with {_step, agent} when agent != "started" <- start(work), do: land(work)
+      # Done, the owner's, or not runnable: no longer in flight. One waiting on
+      # its ci event stays, so the event finds it.
+      with {_step, agent} when agent not in ["started", "waiting"] <- start(work),
+           do: land(work)
     end
 
     :ok
