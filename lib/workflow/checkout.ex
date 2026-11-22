@@ -448,9 +448,7 @@ defmodule Workflow.Checkout do
   @doc "The output of `git status --short` in the checkout, as git gives it."
   @spec status(String.t()) :: String.t()
   def status(root) do
-    {out, _status} =
-      cmd("git", ~w(status --short), [cd: root, stderr_to_stdout: true] ++ @no_lock)
-
+    {out, _status} = cmd("git", ~w(status --short), [cd: root, stderr_to_stdout: true] ++ @no_lock)
     out
   end
 
