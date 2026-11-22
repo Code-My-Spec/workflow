@@ -9,7 +9,6 @@ defmodule Workflow.MixProject do
       version: version_from(git_describe()),
       elixir: "~> 1.20",
       deps: deps(),
-      aliases: [compile: [&fresh_app/1, "compile"]],
       releases: [workflow: [include_executables_for: [:unix]]]
     ]
   end
@@ -33,18 +32,6 @@ defmodule Workflow.MixProject do
     System.cmd("git", ["describe", "--tags"], cd: __DIR__, stderr_to_stdout: true)
   rescue
     _ -> :error
-  end
-
-  # The version moves with every commit, which Mix does not count as a change:
-  # seen live, an .app written at an older commit kept its version, and the
-  # version test failed. One whose version is not this one is dropped, so it is
-  # written again.
-  defp fresh_app(_args) do
-    app = Path.join([Mix.Project.app_path(), "ebin", "workflow.app"])
-
-    with {:ok, [{:application, :workflow, props}]} <- :file.consult(app),
-         true <- to_string(props[:vsn]) != Mix.Project.config()[:version],
-         do: File.rm(app)
   end
 
   def application, do: [mod: {Workflow.Application, []}, extra_applications: [:logger]]
