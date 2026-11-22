@@ -41,7 +41,7 @@ defmodule Workflow.Tellings do
   end
 
   defp told do
-    case Enum.filter(Process.list(), &telling?/1) ++ deployers() do
+    case Enum.filter(Process.list(), &telling?/1) do
       [] ->
         :ok
 
@@ -93,13 +93,5 @@ defmodule Workflow.Tellings do
     with {:monitors, monitors} <- Process.info(watch, :monitors) do
       for {:process, turns} <- monitors, do: Process.exit(turns, :kill)
     end
-  end
-
-  # A landing's deploy runs a provision in a process of its own, which tells as it ends.
-  defp deployers do
-    for {Workflow.Run, :deploy, _target} = name <- :global.registered_names(),
-        pid = :global.whereis_name(name),
-        is_pid(pid),
-        do: pid
   end
 end

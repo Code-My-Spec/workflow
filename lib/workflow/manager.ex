@@ -380,7 +380,7 @@ defmodule Workflow.Manager do
 
   # What a work is handed in with: the old text and criteria (a journey's stages),
   # or a story's own shape.
-  @handed_in ~w(kind id text criteria stages title workflow story rules questions target skills)
+  @handed_in ~w(kind id text criteria stages title workflow story rules questions skills)
 
   defp hand_in(manager) do
     Alloy.Tool.inline(
@@ -514,14 +514,13 @@ defmodule Workflow.Manager do
   # An issue handed in is kept in the main copy as issues/<id>.yml (its title,
   # text and criteria), committed as a recorded story is, before its work starts.
   # What it returns is added to what starting the work says.
-  # A provision is kept the same way, as provisions/<id>.yml.
   # An issue handed in again with other text than its recorded file is refused, as
   # a journey handed in with fields over its recorded file is: the file is not
   # written over and its work is not started or resumed.
-  defp issue_recorded(%{"kind" => kind} = work, %{"repo" => repo})
-       when kind in ["issue", "provision"] and is_binary(repo) do
+  defp issue_recorded(%{"kind" => "issue" = kind} = work, %{"repo" => repo})
+       when is_binary(repo) do
     path = Workflow.StoryFile.issue_path(work)
-    kept = Map.take(work, ["id", "kind", "title", "text", "criteria", "target"])
+    kept = Map.take(work, ["id", "kind", "title", "text", "criteria"])
     yaml = Workflow.StoryFile.yaml(kept)
 
     cond do
@@ -533,7 +532,7 @@ defmodule Workflow.Manager do
         {:refused,
          "Refused: #{path} has uncommitted changes in the main copy. Nothing was started."}
 
-      kind == "issue" and File.read(Path.join(repo, path)) not in [{:ok, yaml}, {:error, :enoent}] ->
+      File.read(Path.join(repo, path)) not in [{:ok, yaml}, {:error, :enoent}] ->
         {:refused,
          "Refused: issue #{work["id"]} is already recorded, and the text handed in differs " <>
            "from the recorded file #{path}, which is not written over (as a journey " <>
@@ -560,7 +559,6 @@ defmodule Workflow.Manager do
       text: %{type: "string"},
       criteria: %{type: "array", items: %{type: "string"}},
       stages: %{type: "array", items: %{type: "string"}},
-      target: %{type: "string", description: "A provision's target (dev, uat, prod)"},
       title: %{type: "string"},
       workflow: %{type: "string"},
       story: %{type: "string"},

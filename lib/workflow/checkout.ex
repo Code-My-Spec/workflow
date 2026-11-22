@@ -554,31 +554,6 @@ defmodule Workflow.Checkout do
   @spec kept(String.t(), String.t()) :: map()
   def kept(root, id), do: root |> results(id) |> Map.get("work", %{})
 
-  @doc "Keeps the commit the checkout is at as the last prod provision that passed, beside every work's results."
-  @spec deployed(String.t()) :: :ok
-  def deployed(root) do
-    {:ok, commit} = git(root, ~w(rev-parse HEAD))
-    File.mkdir_p!(Path.dirname(deployed_path(root)))
-    File.write!(deployed_path(root), commit)
-  end
-
-  @doc "The commits, one a line, since the last prod provision that passed; nil when none has."
-  @spec since_deployed(String.t()) :: String.t() | nil
-  def since_deployed(root) do
-    with {:ok, commit} <- File.read(deployed_path(root)),
-         {:ok, log} <- git(root, ["log", "--oneline", "#{commit}..HEAD"]) do
-      log
-    else
-      _none -> nil
-    end
-  end
-
-  # Not a `.json`: no work's id can name it.
-  defp deployed_path(root) do
-    {:ok, git_dir} = git(root, ~w(rev-parse --path-format=absolute --git-common-dir))
-    Path.join([git_dir, "workflow", "prod-deployed"])
-  end
-
   @doc """
   What a work that ended done left, read from its results beside `dir` (its
   checkout, or the repository it was cut from): the last decision note, the
@@ -704,8 +679,8 @@ defmodule Workflow.Checkout do
           map()
   def analyse(root, dir, recipe, env \\ [], into \\ nil) do
     dir_analysis = analysis_dir(root)
-    # A recipe with arguments (`["provision", step]`) is kept in meta.json by its whole command,
-    # its environment first, so uat and prod at one tree are each run.
+    # A recipe with arguments is kept in meta.json by its whole command, its
+    # environment first, so each variant at one tree is run.
     args = List.wrap(recipe)
     recipe = Enum.join(Enum.map(env, fn {k, v} -> "#{k}=#{v}" end) ++ args, " ")
 

@@ -18,9 +18,6 @@ defmodule Workflow.ConfigFile do
     * `"push"`: `{"remote": ..., "branch": ...}`, where the main copy is pushed
       after a work lands. Each defaults to `"origin"` and `"dev"`. A main copy
       without that remote pushes nothing.
-    * `"deploy"`: a provision target (`"uat"`). Each work that lands then hands
-      in a provision for it, with the id `<target>-<tree>`, by itself. `"prod"`
-      stops the boot: a landing never deploys prod by itself.
     * `"plugin"`: a Claude Code plugin folder (see `Workflow.Plugin`), absolute
       or read against the manager's `"repo"`. Each agent is given its
       `skills/<role>`. One that names no folder, or a folder with no
@@ -33,8 +30,8 @@ defmodule Workflow.ConfigFile do
     * `"server"`: `{"url": "wss://host/socket/websocket", "project_id": "..."}`
       (and optionally `"state_dir"`): the loop dials out to that server and
       relays its chat to the manager (see `Workflow.Server`). With none, it does not.
-    * `"go"`: the sha256 hex of the owner's word, held in memory. POST /work/go
-      releases a waiting prod provision only with that word; with none, it never does.
+    * `"deploy"` and `"go"`, from older files: ignored, with a line logged for
+      each. The loop deploys nothing; deploys live in CodeMySpec.
 
   An example:
 
@@ -57,7 +54,12 @@ defmodule Workflow.ConfigFile do
   not valid JSON stops the boot with a message naming it.
   """
 
-  @keys ["manager", "recipients", "push", "deploy", "server", "go"]
+  require Logger
+
+  @keys ["manager", "recipients", "push", "server"]
+
+  # Keys an older file may still hold, for machinery the loop no longer has.
+  @ignored ["deploy", "go"]
 
   @doc "Where the file is read from."
   @spec path() :: String.t()
@@ -77,12 +79,14 @@ defmodule Workflow.ConfigFile do
 
       {:ok, body} ->
         case Jason.decode(body) do
-          {:ok, %{"deploy" => "prod"}} ->
-            {:error,
-             "config file #{file}: \"deploy\" cannot be \"prod\": a landing never deploys prod by itself; " <>
-               "prod is provisioned only on the owner's go (POST /work/go)"}
-
           {:ok, %{} = settings} ->
+            for key <- @ignored,
+                Map.has_key?(settings, key),
+                do:
+                  Logger.warning(
+                    "config file #{file}: \"#{key}\" is ignored: the loop deploys nothing"
+                  )
+
             apply_settings(settings)
 
           {:ok, _other} ->

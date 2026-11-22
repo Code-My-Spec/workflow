@@ -32,10 +32,10 @@ defmodule Workflow.StoryFile do
 
   def path(_work), do: nil
 
-  @doc "Where an issue or provision handed in is kept in the main copy: its project's `issues/<id>.yml` or `provisions/<id>.yml`."
+  @doc "Where an issue handed in is kept in the main copy: its project's `issues/<id>.yml`."
   @spec issue_path(map()) :: String.t()
-  def issue_path(%{"kind" => kind, "id" => id} = work) when kind in ["issue", "provision"],
-    do: in_project(work, "#{kind}s", id)
+  def issue_path(%{"kind" => "issue", "id" => id} = work),
+    do: in_project(work, "issues", id)
 
   defp in_project(work, dir, name) do
     if work["project"] in [nil, "", "."],
@@ -216,7 +216,6 @@ defmodule Workflow.StoryFile do
       scalar(kind),
       "\n",
       field(work, "title", &[" ", plain(&1), "\n"]),
-      field(work, "target", &[" ", scalar(&1), "\n"]),
       "text:",
       block(work["text"]),
       key,

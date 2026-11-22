@@ -133,19 +133,6 @@ A file that is not there stops the boot with a message naming it. With no
 {"instructions": "/path/to/brief.md"}
 ```
 
-`"go"` is the sha256 hex of the owner's word. A waiting prod provision runs
-only on the owner's go: POST /work/go from the service's own address, with
-`{"id": ..., "root" or "repo": ..., "word": ...}` whose sha256 equals that
-hash. With no `"go"`, every prod go is refused. Set it with
-
-    printf %s 'the word' | shasum -a 256
-
-put the hex in `config.json` as `{"go": "<hex>"}`, and restart the service:
-the hash is read once at boot. Neither the word nor the hash is logged or
-written anywhere by the loop. An agent that can write `config.json` and
-restart the service could still replace the hash; this stops a plain call,
-not that.
-
 ## License
 
 Apache License 2.0. See `LICENSE`.
