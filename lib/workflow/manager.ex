@@ -92,7 +92,7 @@ defmodule Workflow.Manager do
          {:ok, own} <-
            Workflow.Skills.find(get_in(manager, ["agent", "skills"]), repo(manager)),
          skills = plugin ++ own do
-      messages = remembered()
+      messages = bounded(remembered())
       conversation = Workflow.Conversation.path(manager["repo"], "manager")
       who = %{work: nil, step: nil, role: :manager}
       tools = tools(manager)
@@ -156,9 +156,27 @@ defmodule Workflow.Manager do
     end
   end
 
-  # shortcut: the whole conversation is kept and sent every time, so it grows
-  # without end; cut it down when a manager has lived long enough to fill its context.
   defp remember(messages), do: File.write!(file(), :erlang.term_to_binary(messages))
+
+  # What of the kept conversation fits the context, in bytes of its messages as
+  # kept: about 100k tokens at four bytes a token, under every model's context.
+  @bound 400_000
+
+  @doc "How large, in bytes as kept, the conversation a manager's turn starts from may be."
+  @spec bound() :: pos_integer()
+  def bound, do: @bound
+
+  # The kept conversation's newest turns that fit the bound: its oldest are
+  # dropped a whole turn at a time (up to the next prompt the manager was told),
+  # so no tool result is left without its call. One turn too large alone leaves none.
+  defp bounded(messages) do
+    if byte_size(:erlang.term_to_binary(messages)) <= @bound,
+      do: messages,
+      else: messages |> tl() |> Enum.drop_while(&(not prompt?(&1))) |> bounded()
+  end
+
+  defp prompt?(%{role: :user, content: "" <> _text}), do: true
+  defp prompt?(_message), do: false
 
   @doc """
   The manager's own tools (hand_in, record, decide, look, tell, stop) for the given
@@ -586,17 +604,20 @@ defmodule Workflow.Manager do
       },
       execute: fn %{"id" => id} = input, _context ->
         # Handed in again as it was kept, so its text and criteria go with the decision.
-        kept =
-          case checkout(manager, id) && Checkout.snapshot(root(manager, id), id) do
-            %{} -> Checkout.kept(root(manager, id), id)
-            _none -> %{}
-          end
+        # An id with no checkout has no work waiting on its demo: refused, not started.
+        case checkout(manager, id) && Checkout.snapshot(root(manager, id), id) do
+          %{} ->
+            Checkout.kept(root(manager, id), id)
+            |> Map.drop(["review", "demo", "note"])
+            |> Map.merge(Map.take(input, ["id", "kind", "demo", "note"]))
+            |> Map.merge(configured_for(manager))
+            |> started()
 
-        kept
-        |> Map.drop(["review", "demo", "note"])
-        |> Map.merge(Map.take(input, ["id", "kind", "demo", "note"]))
-        |> Map.merge(configured_for(manager))
-        |> started()
+          _none ->
+            {:ok,
+             "Refused: there is no work #{id} waiting on its owner's demo. " <>
+               "Nothing was started, recorded or resumed."}
+        end
       end
     )
   end

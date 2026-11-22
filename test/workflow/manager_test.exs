@@ -2161,4 +2161,81 @@ defmodule Workflow.ManagerTest do
     git.(~w(merge -q --no-ff --no-edit issue/i1))
     assert Workflow.Checkout.landed?(repo, "issue", "i1")
   end
+
+  test "decide-refuses-unknown-id: decide with an id no work is waiting under is refused, naming it, and starts nothing",
+       %{tmp_dir: dir} do
+    repo = Path.join(dir, "repo")
+    configure(Map.put(@manager, "repo", repo), dir)
+    test = self()
+
+    # Every command is told to the test; a checkout asked for is made, as git would.
+    Application.put_env(:workflow, :cmd, fn command, args, _opts ->
+      send(test, {command, args})
+
+      case {command, args} do
+        {"git", ["worktree", "add" | add_args]} ->
+          File.mkdir_p!(List.last(add_args))
+          {"", 0}
+
+        {"git", ["rev-parse", "HEAD^{tree}"]} ->
+          {"t0\n", 0}
+
+        {"git", ["worktree" | _]} ->
+          {"worktree /main copy\nHEAD abc\n", 0}
+
+        {"git", ["rev-parse", "--abbrev-ref", "HEAD"]} ->
+          {"trunk\n", 0}
+
+        {"git", ["rev-list" | _]} ->
+          {"0\n", 0}
+
+        {"git", ["rev-parse", "--path-format=absolute", "--git-common-dir"]} ->
+          {dir <> "\n", 0}
+
+        {"git", ["rev-parse", "HEAD"]} ->
+          {"c0\n", 0}
+
+        _other ->
+          {"", 0}
+      end
+    end)
+
+    Application.put_env(:workflow, :agents_run, fn _step, work ->
+      send(test, {:agent, work})
+      {%{}, nil}
+    end)
+
+    Application.put_env(:workflow, :manager_run, fn _message, opts ->
+      send(test, {:tools, opts[:tools]})
+      {:ok, %{text: "", messages: []}}
+    end)
+
+    on_exit(fn ->
+      for key <- [:cmd, :agents_run, :manager_run], do: Application.delete_env(:workflow, key)
+    end)
+
+    Workflow.Manager.tell("go")
+    assert_received {:tools, tools}
+    decide = Enum.find(tools, &(&1.name == "decide"))
+
+    capture_log(fn ->
+      assert {:ok, said} =
+               decide.execute.(%{"id" => "ghost", "kind" => "issue", "demo" => "approve"}, %{})
+
+      send(test, {:said, said})
+      refute_receive {:agent, _work}, 500
+    end)
+
+    assert_received {:said, said}
+    assert said =~ "Refused"
+    assert said =~ "ghost"
+
+    # No checkout, branch or commit asked of git, and no works, story or issue file made.
+    refute_received {"git", ["worktree", "add" | _]}
+    refute_received {"git", ["branch" | _]}
+    refute_received {"git", ["commit" | _]}
+    refute File.exists?(repo <> "-ghost")
+    refute File.exists?(Path.join(dir, "works"))
+    assert Path.wildcard(Path.join(dir, "**/*ghost*"), match_dot: true) == []
+  end
 end

@@ -126,7 +126,7 @@ defmodule Workflow.Checkout do
     teardown(repo, id, project)
     git(repo, ["worktree", "remove", root(repo, id)])
     git(repo, ["branch", "-D", "#{kind}/#{id}"])
-    :ok
+    prune(repo, id)
   end
 
   @doc """
@@ -139,7 +139,48 @@ defmodule Workflow.Checkout do
     teardown(repo, id, project)
     git(repo, ["worktree", "remove", "--force", root(repo, id)])
     git(repo, ["branch", "-D", "#{kind}/#{id}"])
+    prune(repo, id)
+  end
+
+  # What is the work `id`'s alone under `<git common dir>/workflow`, once it is
+  # done or stopped for good: the run folders at each tree its results name, where
+  # no other work's results name that tree too, and its conversation file. Kept:
+  # each tree's `log` (the line its landing or stop was said in) and the results
+  # file itself, which holds its stop mark and what `look` and `outcome` read.
+  defp prune(repo, id) do
+    with {:ok, git_dir} <- git(repo, ~w(rev-parse --path-format=absolute --git-common-dir)) do
+      workflow = Path.join(git_dir, "workflow")
+
+      others =
+        for file <- Path.wildcard(Path.join(workflow, "*.json")),
+            Path.basename(file, ".json") != id,
+            tree <- trees(file),
+            into: MapSet.new(),
+            do: tree
+
+      for tree <- trees(Path.join(workflow, "#{id}.json")),
+          not MapSet.member?(others, tree),
+          at = Path.join([workflow, "analysis", tree]),
+          {:ok, names} <- [File.ls(at)],
+          name <- names,
+          run = Path.join(at, name),
+          File.dir?(run),
+          do: File.rm_rf(run)
+
+      File.rm(Path.join([workflow, "conversations", "#{id}.jsonl"]))
+    end
+
     :ok
+  end
+
+  # The trees a results file keeps what was found at: its keys that are tree ids.
+  defp trees(file) do
+    with {:ok, json} <- File.read(file),
+         {:ok, %{} = kept} <- Jason.decode(json) do
+      for {key, %{}} <- kept, key =~ ~r/\A[0-9a-f]{40,64}\z/, do: key
+    else
+      _none -> []
+    end
   end
 
   @doc """
