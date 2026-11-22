@@ -27,6 +27,8 @@ package app="":
     @test -d "{{app}}" || { echo "just package: the app repository {{app}} does not exist" >&2; exit 1; }
     @test -f "{{app}}/plugins/phoenix/.claude-plugin/plugin.json" || { echo "just package: {{app}} has no plugin plugins/phoenix (with .claude-plugin/plugin.json)" >&2; exit 1; }
     @test -f "{{app}}/plugins/claude/directory/skills/interview/SKILL.md" || { echo "just package: {{app}} has no instructions file plugins/claude/directory/skills/interview/SKILL.md" >&2; exit 1; }
+    @# The tarball is public: personal paths, emails (but example.com and yourdomain placeholders) and key-shaped values in what it would carry stop the build, each named by file and line.
+    @found=$(grep -rnoIE -e '/(Users|Volumes|home)/[^ )`"]*' -e '~/(Documents|Desktop|Downloads|github|Projects|src|code|dev)/[^ )`"]*' -e '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' -e '(sk-[A-Za-z0-9]{16,}|sk_(live|test)_[A-Za-z0-9]+|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[abp]-[A-Za-z0-9-]+|whsec_[A-Za-z0-9+/=]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY)' "{{app}}/plugins/phoenix" "{{app}}/plugins/claude/directory/skills/interview/SKILL.md" | grep -vE '@(example\.(com|org|net)|yourdomain\.[a-z]+)$'); if [ -n "$found" ]; then echo "just package: these would ship in the public tarball; clean them in the app repository, then build again:" >&2; echo "$found" >&2; exit 1; fi
     MIX_ENV=prod mix deps.get
     MIX_ENV=prod mix release --overwrite
     rm -rf _build/prod/rel/workflow/plugin _build/prod/rel/workflow/instructions.md

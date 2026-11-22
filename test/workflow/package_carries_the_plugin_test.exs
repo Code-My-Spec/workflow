@@ -133,4 +133,36 @@ defmodule Workflow.PackageCarriesThePluginTest do
     assert copy_plugin != :nomatch and copy_brief != :nomatch and tar != :nomatch
     assert copy_plugin < tar and copy_brief < tar
   end
+
+  test "package-carries-the-plugin: just package scans what it would ship and stops on a personal path, an email or a key, naming file and line, building no tarball",
+       %{root: root} do
+    app = Path.join(root, "app")
+    plugin(Path.join(app, @plugin))
+    skill = Path.join([app, @plugin, "skills", "coder", "SKILL.md"])
+    File.mkdir_p!(Path.dirname(skill))
+
+    File.write!(
+      skill,
+      "write to user@example.com\nrun /Users/someone/bin/x\nmail a.person@company.io\n"
+    )
+
+    File.mkdir_p!(Path.dirname(Path.join(app, @instructions)))
+    File.write!(Path.join(app, @instructions), "key AKIAABCDEFGHIJKLMNOP\n")
+    work = Path.join(root, "work")
+    File.mkdir_p!(work)
+
+    {said, status} =
+      System.cmd(
+        "just",
+        ["--justfile", Path.join(File.cwd!(), "justfile"), "--working-directory", work, "package", app],
+        stderr_to_stdout: true
+      )
+
+    assert status != 0, said
+    assert said =~ "skills/coder/SKILL.md:2:/Users/someone/bin/x", said
+    assert said =~ "skills/coder/SKILL.md:3:a.person@company.io", said
+    assert said =~ "#{@instructions}:1:AKIAABCDEFGHIJKLMNOP", said
+    refute said =~ "user@example.com"
+    refute File.exists?(Path.join(work, "_build"))
+  end
 end
