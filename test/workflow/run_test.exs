@@ -587,6 +587,11 @@ defmodule Workflow.RunTest do
         stand_in.("just", args, opts)
         if ci == :none, do: {"error: Justfile does not contain recipe `ci`", 1}, else: {"", 0}
 
+      # No retry recipe: a failing ci runs once more.
+      "just", ["--show", "retry"] = args, opts ->
+        stand_in.("just", args, opts)
+        {"error: Justfile does not contain recipe `retry`", 1}
+
       "just", ["ci", run] = args, opts ->
         stand_in.("just", args, opts)
         sarif.(run)
