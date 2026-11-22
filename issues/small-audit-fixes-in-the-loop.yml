@@ -1,0 +1,21 @@
+id: "small-audit-fixes-in-the-loop"
+kind: "issue"
+title: "Three small audit findings: unlocked results file, unused commit_file/4, three copies of now"
+text: |-
+  Three small findings from the audit, in one work. Confirm each in the code first. If one is not true, make no change for it and close it with a note in the decision note saying why. Before changing or deleting anything, grep every caller (lib, test, scripts).
+
+  (a) The results file is read, changed and written with no lock, so two works finishing close together can lose one's result. If true, make the update safe using the smallest thing the code already has: the loop already serialises some work through one process or a :global.trans lock (ci-last uses :global.trans in checkout.ex). Use that. Add no new process.
+
+  (b) Checkout.commit_file/4 is said to be unused. If no caller exists in lib, test or scripts, delete it and its tests.
+
+  (c) `defp now` is defined three times. If the three are the same, keep one in a place the others can call and delete the other two. If they differ, say how and leave them.
+
+  Rules: no new options and no new layers. Never weaken a test. For each real fix in (a) and (c), add one small test that fails when the fix is removed. For (a), the test makes two updates to the results file at the same time, in a temporary folder, and shows both results are kept. For (b), deletion needs no new test, but the suite must still pass.
+
+  Report in the decision note: for each of (a), (b) and (c), whether it was true and what you changed, with the line counts of each touched file before and after.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When two works finish close together and both update the results file, both works' results are kept in it"
+  - "Checkout.commit_file/4 no longer exists when it has no caller in lib, test or scripts"
+  - "A single `now` function serves every place that used one of the three identical `defp now` copies"
