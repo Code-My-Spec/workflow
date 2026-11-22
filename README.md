@@ -90,8 +90,10 @@ pruned. No folder or no `.png` sends nothing. A failure logs one warning and
 never changes ci's result.
 
 When `ci` fails, a project may have a `retry` recipe: the loop runs
-`just retry <dir2>` in the same ci checkout, where `<dir2>` is a new run folder
-beside the first, so both runs' evidence is kept and neither overwrites the other.
+`just retry <dir2> <dir>` in the same ci checkout, where `<dir2>` is a new run folder
+beside the first, so both runs' evidence is kept and neither overwrites the other,
+and `<dir>` is the first run's folder (its meta.json and SARIF), which `retry` may
+read to learn what failed but must not change.
 `retry` runs only what failed (for a mix project, `mix test --failed`) and writes
 its SARIF into `<dir2>`, as `ci` does into `<dir>`. A failing retry leaves the
 tree red. A passing one is green: each test that failed in the first run's SARIF
