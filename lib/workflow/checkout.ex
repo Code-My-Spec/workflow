@@ -691,13 +691,15 @@ defmodule Workflow.Checkout do
 
   # The second run of a recipe whose first failed, in a run folder of its own. Its
   # verdict is the step's. A ci whose project has a `retry` recipe runs that, which
-  # runs only what failed, instead of ci again. One that passes tells the manager,
+  # runs only what failed, instead of ci again, as `just retry <its run folder> <the
+  # first run's folder>`, the first read-only to it. One that passes tells the manager,
   # once, that the tree was flaky, naming each test that failed in the first run's
   # SARIF (all of them passed again), and carries them as the verdict's "flakes".
   defp rerun(root, dir, dir_analysis, args, recipe, first) do
     again = if args == ["ci"] and recipe?(root, dir, "retry"), do: ["retry"], else: args
+    trailing = if again != args, do: [first["dir"]], else: []
 
-    case run_recipe(root, dir, dir_analysis, again, [], recipe, nil) do
+    case run_recipe(root, dir, dir_analysis, again, [], recipe, nil, trailing) do
       %{"status" => "passed"} = second ->
         if again != args, do: Sarif.merge_meta(second["dir"], %{"ran" => "retry"})
         flaky(dir_analysis, recipe, again, first, second)
@@ -750,14 +752,14 @@ defmodule Workflow.Checkout do
 
   defp first_line(text), do: text |> String.split("\n", parts: 2) |> hd() |> String.trim()
 
-  defp run_recipe(root, dir, dir_analysis, args, env, recipe, into) do
+  defp run_recipe(root, dir, dir_analysis, args, env, recipe, into, trailing \\ []) do
     target = if into, do: Path.join(dir_analysis, into), else: Sarif.new_run(dir_analysis)
     project = Path.join(root, dir || ".")
     started = System.monotonic_time(:millisecond)
     File.mkdir_p!(target)
 
     {output, status} =
-      cmd("just", args ++ [target], cd: project, stderr_to_stdout: true, env: env)
+      cmd("just", args ++ [target | trailing], cd: project, stderr_to_stdout: true, env: env)
 
     took_ms = System.monotonic_time(:millisecond) - started
 

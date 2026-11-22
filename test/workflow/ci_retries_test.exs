@@ -29,10 +29,13 @@ defmodule Workflow.CiRetriesTest do
   # A repository, by real git, whose `ci` recipe fails with @failing in its SARIF and
   # whose `retry` recipe (unless `retry` is nil) exits `retry` with @failing in its
   # SARIF where it fails and none where it passes. Each recipe leaves a mark: its
-  # name and the directory it ran in.
+  # name and the directory it ran in. The retry also records its arguments, the
+  # first run's SARIF as it read it through its second argument, and a copy of the
+  # first run's folder as it found it.
   defp repo(dir, retry) do
     main = Path.join(dir, "main")
     marks = Path.join(dir, "marks")
+    seen = Path.join(dir, "seen")
     File.mkdir_p!(main)
 
     justfile =
@@ -45,8 +48,12 @@ defmodule Workflow.CiRetriesTest do
         if retry,
           do: """
 
-          retry dir:
+          retry dir first:
               echo "retry $(pwd)" >> "#{marks}"
+              mkdir -p "#{seen}"
+              echo "{{dir}} {{first}}" > "#{seen}/args"
+              cat "{{first}}/exunit.sarif" > "#{seen}/first.sarif"
+              cp -R "{{first}}" "#{seen}/first_run"
               cp retry.sarif "{{dir}}/exunit.sarif"
               exit #{retry}
           """,
@@ -75,7 +82,8 @@ defmodule Workflow.CiRetriesTest do
       commit: commit,
       at: Path.join([git_dir, "workflow", "ci", commit]),
       analysis: Path.join([git_dir, "workflow", "analysis", git.(["rev-parse", "HEAD^{tree}"])]),
-      marks: marks
+      marks: marks,
+      seen: seen
     }
   end
 
@@ -165,5 +173,35 @@ defmodule Workflow.CiRetriesTest do
     assert marks(repo) == ["ci #{repo.at}", "retry #{repo.at}"]
     assert [_first, ^second] = runs(repo)
     assert told() == []
+  end
+
+  # Each file of a folder, by its path within it, with its contents.
+  defp files(folder) do
+    for path <- Path.wildcard(Path.join(folder, "**"), match_dot: true),
+        File.regular?(path),
+        into: %{},
+        do: {Path.relative_to(path, folder), File.read!(path)}
+  end
+
+  test "retry-is-told-the-first-run: criteria 1 and 2 - the retry is given the first run's folder, reads its SARIF from it, and leaves it unchanged",
+       %{tmp_dir: dir} do
+    inbox(dir)
+    repo = repo(dir, 0)
+
+    assert {:green, [_flake]} = Checkout.ci(repo.main, repo.commit, nil)
+    assert [first, second] = runs(repo)
+
+    # `just retry <its own run folder> <the first run's folder>`.
+    assert File.read!(Path.join(repo.seen, "args")) == "#{second} #{first}\n"
+
+    # The retry read the first run's SARIF through its second argument.
+    assert File.read!(Path.join(repo.seen, "first.sarif")) ==
+             File.read!(Path.join(repo.main, "first.sarif"))
+
+    # The first run's folder (its meta.json and SARIF) is as the retry found it.
+    found = files(Path.join(repo.seen, "first_run"))
+    assert Map.has_key?(found, "meta.json")
+    assert Map.has_key?(found, "exunit.sarif")
+    assert files(first) == found
   end
 end

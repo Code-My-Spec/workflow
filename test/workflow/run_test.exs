@@ -795,8 +795,8 @@ defmodule Workflow.RunTest do
 
     # The project has a retry recipe, and its retry passes.
     Application.put_env(:workflow, :cmd, fn
-      "just", ["--show", "retry"], _opts -> {"retry dir:", 0}
-      "just", ["retry", _run] = args, _opts -> send(test, {"just", args}) && {"", 0}
+      "just", ["--show", "retry"], _opts -> {"retry dir first:", 0}
+      "just", ["retry", _run, _first] = args, _opts -> send(test, {"just", args}) && {"", 0}
       command, args, opts -> inner.(command, args, opts)
     end)
 
@@ -805,7 +805,7 @@ defmodule Workflow.RunTest do
 
     assert Workflow.Run.step(work) == nil
     assert_received {"just", ["ci", first]}
-    assert_received {"just", ["retry", second]}
+    assert_received {"just", ["retry", second, ^first]}
     assert first != second
     refute_received {"just", ["ci", _again]}
 
