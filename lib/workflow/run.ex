@@ -119,9 +119,14 @@ defmodule Workflow.Run do
       story_file(work)
       Checkout.keep(root, id, work)
 
+      # The owner's decision is an event, recorded as one pushed or posted is.
       Enum.each(@decisions, fn {key, step, pass, fail} ->
         if decision = decision(work, key, pass, fail),
-          do: Checkout.record(root, id, step, decision)
+          do:
+            if(step == "approve",
+              do: record_event(root, id, step, decision),
+              else: Checkout.record(root, id, step, decision)
+            )
       end)
 
       # Kept apart from the tree, so a merge or failed check first cannot lose it.
@@ -159,12 +164,8 @@ defmodule Workflow.Run do
     if path = Workflow.StoryFile.path(work) do
       message = "#{kind} #{id}: the #{kind} as handed in"
 
-      # A story that names a workflow is added to it in the same commit.
-      files = [
-        {path, Workflow.StoryFile.yaml(work)} | Workflow.StoryFile.workflow_file(work, root)
-      ]
-
-      with {:error, why} <- Checkout.commit_files(root, files, message),
+      with {:error, why} <-
+             Checkout.commit_files(root, [{path, Workflow.StoryFile.yaml(work)}], message),
            do: Logger.warning("[Workflow #{id}] #{path} not committed: #{inspect(why)}")
     end
   end
@@ -265,10 +266,6 @@ defmodule Workflow.Run do
         result = template.perform(name, work, snapshot)
         Checkout.record(root, id, name, result)
         say(work, "#{name}: #{result["status"]}")
-
-        if name == "promote" and result["status"] == "promoted",
-          do: ci(work, snapshot, result["commit"])
-
         advance(template, work)
 
       step ->
@@ -276,64 +273,90 @@ defmodule Workflow.Run do
     end
   end
 
-  # A landing is checked by the project's `just ci` at the landed commit, with the
-  # work's checkout and agents kept, idle, until it answers. Red reverts nothing:
-  # a red the previous ci run already had is not reported again, a red new with
-  # this landing goes back to the work, and one that cannot (the work is gone, or
-  # the red is partly older) is told to the manager.
-  defp ci(%{"id" => id, "root" => root} = work, %{main_copy: main_copy}, commit) do
-    say(work, "ci started at #{commit}")
+  @doc """
+  Records the event `name`, with its `payload`, for the work `id`, at its tree
+  as any step's result is, and runs the work on from there in the background:
+  an external step (`actor: :external`) is done once its event is recorded. The
+  one way in for an event pushed on the server's channel or POSTed to
+  `/works/:id/events`. A `ci` event whose verdict is flaky also hands in an
+  issue for each flaky test. Answers `:ok`, or `:none` with no copy for `id`.
+  """
+  @spec event(String.t(), String.t(), term()) :: :ok | :none
+  def event(id, name, payload) do
+    case waiting(id) do
+      nil ->
+        :none
 
-    case Checkout.ci(main_copy, commit, work["project"]) do
-      :green ->
-        say(work, "ci: passed at #{commit}")
-
-      # Green after a retry: the tests that failed first are kept as the work's ci
-      # result, so its report to the server names them.
-      {:green, flakes} ->
-        say(work, "ci: passed at #{commit} after a retry, #{length(flakes)} flaky test(s)")
-
-        if File.dir?(root),
-          do: Checkout.record(root, id, "ci", %{"status" => "passed", "flakes" => flakes})
-
-      :known ->
-        say(work, "ci: failed at #{commit}, with the failures the previous ci run had")
-
-      {:new, %{"note" => note}} ->
-        say(work, "ci: failed at #{commit}")
-
-        if cancelled?(work) or not File.dir?(root) do
-          red(work, commit, note, "The work is gone, so the failure could not go back to it.")
-        else
-          Checkout.record(root, id, "ci", %{
-            "status" => "failed",
-            "note" =>
-              "`just ci` failed twice at the commit this work landed as on dev (#{commit}). " <>
-                "Fix it here, and commit:\n\n" <> note
-          })
-        end
-
-      {:mixed, %{"note" => note}} ->
-        say(work, "ci: failed at #{commit}")
-
-        red(
-          work,
-          commit,
-          note,
-          "Some of these failures were already there before this landing, so they belong " <>
-            "to no one work and were not sent back to it."
-        )
+      work ->
+        payload = if is_map(payload), do: payload, else: %{}
+        record_event(work["root"], id, name, payload)
+        if name == "ci" and payload["verdict"] == "flaky", do: flaky(work, payload)
+        Task.start(fn -> watch(%{name: name, actor: :system, note: nil}, work) end)
+        :ok
     end
   end
 
-  # Told to the manager once, in plain words, in the background.
-  defp red(%{"kind" => kind, "id" => id}, commit, note, why) do
-    text =
-      "#{kind} #{id} landed on dev as commit #{commit}, and `just ci` failed there twice. " <>
-        "Nothing was reverted. #{why} The failures:\n\n#{note}"
+  defp record_event(root, id, name, payload),
+    do: Checkout.record(root, id, name, Map.put(payload, "event", name))
 
-    if Workflow.Manager.configured(),
-      do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", text) end)
+  # A work waiting holds only its record: it is read back from its copy, in
+  # flight or cut from the manager's repo, with the manager's agents.
+  defp waiting(id) do
+    manager = Workflow.Manager.configured() || %{}
+
+    flying =
+      with {:ok, json} <- File.read(Path.join(works_dir(), "#{id}.json")),
+           {:ok, %{} = work} <- Jason.decode(json) do
+        work
+      else
+        _none -> %{}
+      end
+
+    # In flight it is whole; else it was the manager's, cut beside the manager's repo.
+    flying =
+      if flying == %{} and manager["repo"],
+        do: Map.take(manager, ["repo", "project", "agents"]),
+        else: flying
+
+    with nil <- Checkout.refused(id),
+         "" <> root <- flying["root"] || (flying["repo"] && Checkout.root(flying["repo"], id)),
+         true <- File.dir?(root) do
+      flying
+      |> Map.merge(Map.drop(Checkout.kept(root, id), ["review", "demo", "note"]))
+      |> Map.merge(%{"id" => id, "root" => root})
+    else
+      _none -> nil
+    end
+  end
+
+  # One issue handed in per flaky test, named by the test and the tree.
+  defp flaky(work, payload) do
+    tree = to_string(payload["tree"])
+
+    for test <- List.wrap(payload["flaky"]), repo = work["repo"] || work["root"] do
+      %{
+        "kind" => "issue",
+        "id" => "flaky-#{short(test)}-#{String.slice(tree, 0, 7)}",
+        "text" =>
+          "The test #{test} is flaky: on the tree #{tree} it failed and passed. " <>
+            "Make it pass every time.",
+        "repo" => repo
+      }
+      |> Map.merge(Map.take(work, ["project", "agents", "agent"]))
+      |> start()
+    end
+  end
+
+  # A test's name, short and plain enough for an id: its file's name where it has one.
+  defp short(test) do
+    test
+    |> to_string()
+    |> Path.basename()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
+    |> String.slice(0, 40)
+    |> String.trim("-")
   end
 
   @doc """
@@ -527,7 +550,7 @@ defmodule Workflow.Run do
 
   # The system's steps, run under the checkout's lock with the work in flight,
   # and what they leave it on taken as `start/1` would have.
-  defp system(%{"id" => id, "root" => root} = work) do
+  defp system(%{"root" => root} = work) do
     case to_coder(step(work), work) do
       %{stop: true, note: note} = step ->
         stop(work, step, "stopped: #{note}")
@@ -543,8 +566,7 @@ defmodule Workflow.Run do
         stop(work, step, dirty(root))
 
       left ->
-        land(work, landed(left))
-        Logger.info("[Workflow #{id}] left on #{(is_map(left) && left.name) || "done"}")
+        left(work, left)
     end
   end
 
@@ -648,17 +670,7 @@ defmodule Workflow.Run do
     # Seen live: a reviewer's check run left untracked logs, and the work sat on
     # promote saying no reason. A dirty system step after a turn is taken as
     # `system/1` takes it: to the coder, else stopped saying what git says.
-    case uncommitted(step, root, id) || recheck(step, work, elem(seen, 2)) ||
-           to_coder(step(work), work) do
-      # The check run again at the unchanged tree failed again: it waits, as a third send would.
-      :red ->
-        wait(
-          work,
-          step,
-          "sent to the #{step.actor} a third time with the same tree and note" <>
-            told(elem(sent, 2))
-        )
-
+    case uncommitted(step, root, id) || to_coder(step(work), work) do
       # An agent's step again: an agent that moved nothing is told so, not left
       # sitting on it; the handoffs bound how often.
       %{agent: _} = next when handoffs > 0 ->
@@ -671,40 +683,20 @@ defmodule Workflow.Run do
         stop(work, left, dirty(root))
 
       left ->
-        land(work, landed(left))
-        if is_nil(left), do: Agents.forget(id)
-        Logger.info("[Workflow #{id}] left on #{(is_map(left) && left.name) || "done"}")
+        left(work, left)
     end
   end
 
-  # Seen live: certify failed on a flaky spex run, the coder ran it green and had
-  # nothing to change, and the same tree and note went back until the work waited.
-  # A coder's turn that leaves a tree whose check failed unchanged has that check
-  # run once more there. Passed, the tree was flaky: the manager is told, as a ci
-  # retry tells it, and the work moves on. Failed again, it is `:red`.
-  defp recheck(%{actor: :coder}, %{"id" => id, "root" => root} = work, tree) do
-    with %{head: ^tree, results: %{^tree => %{} = at}} <- Checkout.snapshot(root, id),
-         {name, first} <- Enum.find(at, &failed_run?/1) do
-      say(work, "#{name} run again at the unchanged tree #{tree}")
-      Checkout.afresh(root, id)
-      next = step(work)
+  # Left on an event, kept in flight with its copy, so the event finds it; else
+  # landed, waiting on its owner or done.
+  defp left(work, %{actor: :external, name: name}),
+    do: say(work, "waiting on the event #{name}")
 
-      with %{head: head, results: results} <- Checkout.snapshot(root, id),
-           %{"status" => "passed"} = second <- get_in(results, [head, name]) do
-        Checkout.flaky(first, second)
-        next
-      else
-        _red -> :red
-      end
-    else
-      _no_failed_check -> nil
-    end
+  defp left(%{"id" => id} = work, left) do
+    land(work, landed(left))
+    if is_nil(left), do: Agents.forget(id)
+    Logger.info("[Workflow #{id}] left on #{(is_map(left) && left.name) || "done"}")
   end
-
-  defp recheck(_step, _work, _tree), do: nil
-
-  defp failed_run?({name, result}),
-    do: name in ["run", "certify"] and match?(%{"status" => "failed", "dir" => _}, result)
 
   # Giving up is kept with the work's results and said once, never left silent.
   defp stop(work, step, reason) do
@@ -803,28 +795,9 @@ defmodule Workflow.Run do
           Workflow.Messages.say(
             "manager",
             "workflow",
-            "#{kind} #{id}: #{how}#{outcome(work, how)}#{unhandled_flakes(work)}"
+            "#{kind} #{id}: #{how}#{outcome(work, how)}"
           )
         end)
-  end
-
-  # A landing frees a slot: a flake whose hand-in was refused at the cap is named
-  # again, until a work is handed in after it was seen.
-  defp unhandled_flakes(work) do
-    case Checkout.unhandled_flakes(work["repo"] || work["root"]) do
-      [] ->
-        ""
-
-      flakes ->
-        named =
-          Enum.map_join(flakes, "", fn f ->
-            at = Enum.join(Enum.reject([f["file"] || "(no file)", f["line"]], &is_nil/1), ":")
-            "\n- #{at}: #{f["test"]}"
-          end)
-
-        "\n\nFlaky failures no work has been handed in for since they were seen:" <>
-          named <> "\nA slot is free: hand in an issue for them."
-    end
   end
 
   # A work done says what it left, so the manager can tell an empty one from a real one.

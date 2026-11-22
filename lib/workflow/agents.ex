@@ -32,7 +32,14 @@ defmodule Workflow.Agents do
     case get_in(work, ["agents", to_string(step.actor)]) || work["agent"] do
       %{"provider" => "claude-code"} = named ->
         # This machine's own `claude` login.
-        {:ok, {AlloyClaudeCode, %{model: named["model"] || "claude-sonnet-5-5", workdir: root}}}
+        config = %{model: named["model"] || "claude-sonnet-5-5", workdir: root}
+        # The plugin's MCP servers, where it has a `.mcp.json`.
+        config =
+          with "" <> mcp <- Workflow.Plugin.mcp(),
+               do: Map.put(config, :settings_path, mcp),
+               else: (_ -> config)
+
+        {:ok, {AlloyClaudeCode, config}}
 
       %{"provider" => "anthropic", "key" => "" <> key} = named ->
         config = %{api_key: key, model: named["model"] || "claude-sonnet-5-5"}
@@ -149,17 +156,16 @@ defmodule Workflow.Agents do
   def forget(id),
     do: Agent.update(__MODULE__, &Map.reject(&1, fn {{work, _actor}, _said} -> work == id end))
 
-  @doc "What is said to a step's agent this turn: its note, the static review section when it decides, its own text and what to read first on a first message, and where it is."
+  @doc "What is said to a step's agent this turn: its note, the static review section when it decides, and its own text on a first message, and where it is."
   @spec message(Workflow.step(), map(), list(), map()) :: String.t()
   def message(step, work, said, snapshot \\ %{}) do
-    # The work's own text, and what it should read, once: after that the agent has it.
+    # The work's own text, once: after that the agent has it.
     [
       step.note,
       owner(work),
       review(step, work, snapshot),
       said == [] && work["text"],
       said == [] && own(work),
-      said == [] && read(work),
       project(work)
     ]
     |> Enum.filter(&is_binary/1)
@@ -199,13 +205,6 @@ defmodule Workflow.Agents do
         nil
     end
   end
-
-  defp read(%{"read" => [_ | _] = read}),
-    do:
-      "Read before anything else: " <>
-        Enum.map_join(read, ", ", &"`#{Path.join(Workflow.Knowledge.dir(), &1)}`")
-
-  defp read(_work), do: nil
 
   # Said only of a work inside another project's checkout: there a `cd` is lost
   # between an agent's commands. How to run a tool there is the plugin's to say.

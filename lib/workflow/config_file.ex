@@ -30,8 +30,6 @@ defmodule Workflow.ConfigFile do
     * `"server"`: `{"url": "wss://host/socket/websocket", "project_id": "..."}`
       (and optionally `"state_dir"`): the loop dials out to that server and
       relays its chat to the manager (see `Workflow.Server`). With none, it does not.
-    * `"deploy"` and `"go"`, from older files: ignored, with a line logged for
-      each. The loop deploys nothing; deploys live in CodeMySpec.
 
   An example:
 
@@ -54,12 +52,7 @@ defmodule Workflow.ConfigFile do
   not valid JSON stops the boot with a message naming it.
   """
 
-  require Logger
-
   @keys ["manager", "recipients", "push", "server"]
-
-  # Keys an older file may still hold, for machinery the loop no longer has.
-  @ignored ["deploy", "go"]
 
   @doc "Where the file is read from."
   @spec path() :: String.t()
@@ -80,13 +73,6 @@ defmodule Workflow.ConfigFile do
       {:ok, body} ->
         case Jason.decode(body) do
           {:ok, %{} = settings} ->
-            for key <- @ignored,
-                Map.has_key?(settings, key),
-                do:
-                  Logger.warning(
-                    "config file #{file}: \"#{key}\" is ignored: the loop deploys nothing"
-                  )
-
             apply_settings(settings)
 
           {:ok, _other} ->

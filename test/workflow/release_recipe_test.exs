@@ -182,8 +182,12 @@ defmodule Workflow.ReleaseRecipeTest do
     assert status == 0, said
     calls = File.read!(log)
 
-    url = "https://github.com/Code-My-Spec/workflow/releases/download/v3.0.4/codemyspec-darwin-arm64.tar.gz"
-    assert calls =~ ~r/^gh release create v3\.0\.4 .+\/_build\/codemyspec-darwin-arm64\.tar\.gz /m, calls
+    url =
+      "https://github.com/Code-My-Spec/workflow/releases/download/v3.0.4/codemyspec-darwin-arm64.tar.gz"
+
+    assert calls =~ ~r/^gh release create v3\.0\.4 .+\/_build\/codemyspec-darwin-arm64\.tar\.gz /m,
+           calls
+
     assert calls =~ "--notes codemyspec 3.0.4 for macOS", calls
     assert calls =~ "commit: codemyspec 3.0.4\n", calls
     assert calls =~ ~r/^A\tFormula\/codemyspec\.rb$/m, calls

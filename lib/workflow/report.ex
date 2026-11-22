@@ -48,9 +48,7 @@ defmodule Workflow.Report do
         "commit" => Checkout.commit(root),
         "at" => Checkout.now(),
         "machine" => machine(),
-        "note" => note(seen),
-        # Each test (file and test) that failed in ci's first run and passed in its retry.
-        "flakes" => get_in(seen.found, ["ci", "flakes"]) || []
+        "note" => note(seen)
       }
 
       if status == "landed", do: Map.merge(report, landed(work, seen)), else: report

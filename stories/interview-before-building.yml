@@ -20,9 +20,6 @@ rules:
   - rule: What the customer has not settled is kept as an open question, not written up as a rule.
     scenarios:
       - happy: The customer is unsure whether owners can reply, so the story records that as a question.
-  - rule: Personas are part of the interview and are kept in a file in the repository.
-    scenarios:
-      - happy: The chat settles who the product is for, and the project manager records the personas in a file.
 questions:
   - Should a story with open questions be passed on only when the customer says to go ahead anyway?
   - Does the chat read the whole story back and get agreement before it passes it on?

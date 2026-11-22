@@ -628,12 +628,15 @@ defmodule Workflow.Checkout do
     end
   end
 
-  @doc "Merges the main copy's branch, then analyses `dir` of the checkout with the recipe certify."
-  @spec certify(String.t(), map(), String.t() | nil) :: map()
-  def certify(root, %{main: main}, dir) do
+  @doc """
+  Merges the main copy's branch, then analyses `dir` of the checkout with the
+  recipe certify, for the work `id` (see `analyse/6`).
+  """
+  @spec certify(String.t(), map(), String.t() | nil, String.t()) :: map()
+  def certify(root, %{main: main}, dir, id) do
     case git(root, ["merge", "--no-edit", main]) do
       {:ok, _merged} ->
-        analyse(root, dir, "certify")
+        analyse(root, dir, "certify", [], nil, "certify/#{id}")
 
       {:error, conflict} ->
         git(root, ~w(merge --abort))
@@ -641,9 +644,9 @@ defmodule Workflow.Checkout do
     end
   end
 
-  @doc "Analyses `dir` of the checkout as it stands, with the recipe run."
-  @spec test(String.t(), String.t() | nil) :: map()
-  def test(root, dir), do: analyse(root, dir, "run")
+  @doc "Analyses `dir` of the checkout as it stands, with the recipe run, for the work `id`."
+  @spec test(String.t(), String.t() | nil, String.t()) :: map()
+  def test(root, dir, id), do: analyse(root, dir, "run", [], nil, "run/#{id}")
 
   @doc """
   Runs the project's demo, as `just demo <dir>` into the `demo` folder of the tree's
@@ -666,6 +669,11 @@ defmodule Workflow.Checkout do
   reads the verdict from there. A tree already analysed with `recipe` has its
   latest run read, not run again. With `into`, the recipe is given that folder of
   the tree's analysis directory instead.
+
+  With a `context` (`certify/<work id>`, `run/<work id>`), the recipe is also
+  given EVIDENCE_CONTEXT as that and one EVIDENCE_CORRELATION uuid, and the
+  evidence it leaves in the project is sent up afterwards (`Workflow.Upload`).
+  The verdict is the recipe's exit, whatever becomes of the upload.
   """
   @spec analyse(
           String.t(),
@@ -674,10 +682,11 @@ defmodule Workflow.Checkout do
           [
             {String.t(), String.t()}
           ],
+          String.t() | nil,
           String.t() | nil
         ) ::
           map()
-  def analyse(root, dir, recipe, env \\ [], into \\ nil) do
+  def analyse(root, dir, recipe, env \\ [], into \\ nil, context \\ nil) do
     dir_analysis = analysis_dir(root)
     # A recipe with arguments is kept in meta.json by its whole command, its
     # environment first, so each variant at one tree is run.
@@ -703,151 +712,9 @@ defmodule Workflow.Checkout do
         "`just #{recipe}` failed at this tree (exit #{ran["exit"]})."
       )
     else
-      verdict = run_recipe(root, dir, dir_analysis, args, env, recipe, into)
-
-      # A red is only a red after it fails twice at the same tree: the run and
-      # certify steps run their recipe once more, whole, in a run folder of its own.
-      if verdict["status"] == "failed" and args in [["run"], ["certify"], ["ci"]] and env == [] and
-           is_nil(into) do
-        rerun(root, dir, dir_analysis, args, recipe, verdict)
-      else
-        verdict
-      end
+      run_recipe(root, dir, dir_analysis, args, env, recipe, into, context)
     end
   end
-
-  # The second run of a recipe whose first failed, in a run folder of its own. Its
-  # verdict is the step's. A ci whose project has a `retry` recipe runs that, which
-  # runs only what failed, instead of ci again, as `just retry <its run folder> <the
-  # first run's folder>`, the first read-only to it. One that passes tells the manager,
-  # once, that the tree was flaky, naming each test that failed in the first run's
-  # SARIF (all of them passed again), and carries them as the verdict's "flakes".
-  defp rerun(root, dir, dir_analysis, args, recipe, first) do
-    again = if args == ["ci"] and recipe?(root, dir, "retry"), do: ["retry"], else: args
-    trailing = if again != args, do: [first["dir"]], else: []
-
-    case run_recipe(root, dir, dir_analysis, again, [], recipe, nil, trailing) do
-      %{"status" => "passed"} = second ->
-        if again != args, do: Sarif.merge_meta(second["dir"], %{"ran" => "retry"})
-        flaky(dir_analysis, recipe, again, first, second)
-
-      second ->
-        second
-    end
-  end
-
-  @doc """
-  A recipe's run that failed (`first`), then passed when run again at the same
-  tree (`second`): the manager is told once that the tree was flaky, as a ci
-  retry that passes tells it. Answers `second` with its "flakes".
-  """
-  @spec flaky(map(), map()) :: map()
-  def flaky(%{"dir" => dir} = first, second) do
-    recipe = Sarif.meta(dir)["recipe"]
-    flaky(Path.dirname(dir), recipe, String.split(recipe), first, second)
-  end
-
-  defp flaky(dir_analysis, recipe, again, first, second) do
-    flakes =
-      Enum.uniq(
-        for f <- Sarif.failures(first["dir"]),
-            do: %{"file" => f["file"], "test" => f["text"] |> to_string() |> first_line()}
-      )
-
-    named = Enum.map_join(flakes, "", &"\n- #{&1["file"] || "(no file)"}: #{&1["test"]}")
-
-    note =
-      "The tree #{Path.basename(dir_analysis)} was flaky: `just #{recipe}` failed, " <>
-        "then `just #{Enum.join(again, " ")}` passed at the same tree." <>
-        if(flakes == [], do: "", else: " Flaky tests:#{named}") <>
-        "\n\nThe first run's failures:\n\n#{first["note"]}\n\n" <>
-        "Both runs are kept, in #{first["dir"]} and #{second["dir"]}. " <>
-        "Hand in an issue for this flaky failure."
-
-    if Workflow.Manager.configured(),
-      do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", note) end)
-
-    Map.put(second, "flakes", flakes)
-  end
-
-  @doc """
-  The flaky failures kept in `repo`'s evidence that no work has been handed in
-  for since they were seen, each with its file, line and test. A flake is a run
-  folder whose recipe failed, followed at the same tree by a run of the same
-  recipe that passed (a ci retry, a certify rerun, a recheck); it was seen when
-  that second run was made. It is handled once the main copy has a hand-in
-  commit (`<kind> <id>: the <kind> as handed in`) made at or after that time.
-  """
-  @spec unhandled_flakes(String.t() | nil) :: [map()]
-  def unhandled_flakes(repo) do
-    with true <- is_binary(repo) and File.dir?(repo),
-         {:ok, git_dir} <- git(repo, ~w(rev-parse --path-format=absolute --git-common-dir)),
-         [_ | _] = seen <- flakes_seen(Path.join([git_dir, "workflow", "analysis"])) do
-      handed_in = handed_in_at(repo)
-
-      seen
-      |> Enum.reject(fn {at, _failures} -> Enum.any?(handed_in, &(&1 >= at)) end)
-      |> Enum.flat_map(&elem(&1, 1))
-      |> Enum.uniq()
-    else
-      _none -> []
-    end
-  end
-
-  defp flakes_seen(analysis) do
-    for tree <- Path.wildcard(Path.join(analysis, "*")),
-        runs = runs_in(tree),
-        {{dir, meta}, i} <- Enum.with_index(runs),
-        meta["exit"] not in [0, nil],
-        {_next, %{"exit" => 0} = again} <-
-          [Enum.find(Enum.drop(runs, i + 1), fn {_, m} -> m["recipe"] == meta["recipe"] end)],
-        {:ok, seen, _offset} <- [DateTime.from_iso8601(again["at"] || "")],
-        failures = Sarif.failures(dir),
-        failures != [] do
-      {DateTime.to_unix(seen),
-       for(
-         f <- failures,
-         do: %{
-           "file" => f["file"],
-           "line" => f["line"],
-           "test" => f["text"] |> to_string() |> first_line()
-         }
-       )}
-    end
-  end
-
-  # A tree's run folders, earliest first, each with its meta.
-  defp runs_in(tree) do
-    for name <- File.ls!(tree),
-        {at, ""} <- [Integer.parse(name)],
-        dir = Path.join(tree, name),
-        File.dir?(dir) do
-      {at, dir}
-    end
-    |> Enum.sort()
-    |> Enum.map(fn {_at, dir} -> {dir, Sarif.meta(dir)} end)
-  end
-
-  # The unix times of the main copy's hand-in commits.
-  defp handed_in_at(repo) do
-    case git(repo, ["log", "--format=%ct %s"]) do
-      {:ok, out} ->
-        for line <- String.split(out, "\n", trim: true),
-            [ct, subject] <- [String.split(line, " ", parts: 2)],
-            subject =~ ~r/^\S+ \S+: the \S+ as handed in$/,
-            do: String.to_integer(ct)
-
-      _none ->
-        []
-    end
-  end
-
-  defp recipe?(root, dir, name),
-    do:
-      match?(
-        {_, 0},
-        cmd("just", ["--show", name], cd: Path.join(root, dir || "."), stderr_to_stdout: true)
-      )
 
   # What a recipe the loop runs is given: the call's own `env`, and CODEMYSPEC_PLUGIN
   # as the plugin folder in use, absolute, so a project's recipes can find it. Not
@@ -859,20 +726,21 @@ defmodule Workflow.Checkout do
     end
   end
 
-  defp first_line(text), do: text |> String.split("\n", parts: 2) |> hd() |> String.trim()
-
-  defp run_recipe(root, dir, dir_analysis, args, env, recipe, into, trailing \\ []) do
+  defp run_recipe(root, dir, dir_analysis, args, env, recipe, into, context) do
     target = if into, do: Path.join(dir_analysis, into), else: Sarif.new_run(dir_analysis)
     project = Path.join(root, dir || ".")
     started = System.monotonic_time(:millisecond)
     File.mkdir_p!(target)
+    before = context && Workflow.Upload.evidence(project)
 
     {output, status} =
-      cmd("just", args ++ [target | trailing],
+      cmd("just", args ++ [target],
         cd: project,
         stderr_to_stdout: true,
-        env: recipe_env(env)
+        env: recipe_env(Workflow.Upload.env(context) ++ env)
       )
+
+    if context, do: Workflow.Upload.upload(project, before)
 
     took_ms = System.monotonic_time(:millisecond) - started
 
@@ -976,9 +844,9 @@ defmodule Workflow.Checkout do
         {:ok, landed} = git(main_copy, ~w(rev-parse HEAD))
 
         # No such remote pushes nothing. A refused push never holds landing;
-        # the next push carries everything.
+        # the next push carries everything. One that went is said on the channel.
         with {:ok, _url} <- git(main_copy, ["remote", "get-url", remote]),
-             {:error, why} <- git(main_copy, ["push", remote, "HEAD:" <> branch]) do
+             {:error, why} <- pushed(main_copy, remote, branch, landed) do
           note =
             "Landed, but the push to #{remote} #{branch} failed: #{why}\n\n" <>
               "Hand in an issue with this failure now; do not ask first."
@@ -1009,152 +877,10 @@ defmodule Workflow.Checkout do
     end
   end
 
-  @doc """
-  Runs `just ci <dir>` at exactly the landed `commit`, in a detached checkout of
-  its own (`<git common dir>/workflow/ci/<commit>`) that a later landing does not
-  move, through `analyse/3`: its own run folder, and a failure run once more.
-  A project with no `ci` recipe is green. Answers `:green`; `{:green, flakes}`
-  when ci failed and its retry passed, `flakes` the tests (file and test) that
-  failed first; `:known` when the
-  previous ci run already had every failure; `{:new, verdict}` when it had none
-  of them; `{:mixed, verdict}` when it had some.
-
-  When it ends it keeps its own checkout and removes every other one under
-  `<git common dir>/workflow/ci/` whose run is not still going.
-  """
-  @spec ci(String.t(), String.t(), String.t() | nil) ::
-          :green | {:green, [map()]} | :known | {:new, map()} | {:mixed, map()}
-  def ci(main_copy, commit, dir) do
-    {:ok, git_dir} = git(main_copy, ~w(rev-parse --path-format=absolute --git-common-dir))
-    at = Path.join([git_dir, "workflow", "ci", commit])
-    # Held while the run goes, so no other run's pruning takes its checkout.
-    lock = {{__MODULE__, :ci, at}, self()}
-    :global.set_lock(lock, [node()])
-
-    try do
-      git(main_copy, ["worktree", "remove", "--force", at])
-      {:ok, _} = git(main_copy, ["worktree", "add", "--detach", at, commit])
-
-      verdict =
-        case cmd("just", ["--show", "ci"], cd: Path.join(at, dir || "."), stderr_to_stdout: true) do
-          {_shown, 0} -> analyse(at, dir, "ci")
-          _no_recipe -> %{"status" => "passed", "note" => "no ci recipe"}
-        end
-
-      # A green run's evidence goes up before any later run can prune this checkout.
-      if verdict["status"] == "passed" and verdict["dir"] do
-        server = Application.get_env(:workflow, :server)
-        Workflow.Evidence.upload(verdict["dir"], Path.join(at, dir || "."), commit, server)
-      end
-
-      parent = previous(main_copy, git_dir, commit, verdict["status"] != "passed")
-
-      case {compared(git_dir, commit, parent, verdict), verdict["flakes"]} do
-        {:green, [_ | _] = flakes} -> {:green, flakes}
-        {answer, _flakes} -> answer
-      end
-    after
-      prune_ci(main_copy, Path.dirname(at), commit)
-      :global.del_lock(lock, [node()])
-    end
-  end
-
-  # Removes the ci checkouts other than `kept` whose run is not going. A failure
-  # is logged and changes nothing else.
-  defp prune_ci(main_copy, ci_dir, kept) do
-    with {:ok, names} <- File.ls(ci_dir) do
-      for name <- names, name != kept, at = Path.join(ci_dir, name) do
-        lock = {{__MODULE__, :ci, at}, self()}
-
-        if :global.set_lock(lock, [node()], 0) do
-          try do
-            with {:error, why} <- git(main_copy, ["worktree", "remove", "--force", at]) do
-              Logger.warning("[Workflow] could not remove the ci checkout #{at}: #{why}")
-            end
-          after
-            :global.del_lock(lock, [node()])
-          end
-        end
-      end
-    end
-
-    :ok
-  end
-
-  # The landing before `commit` (its first parent). A red waits for that landing's
-  # ci run, if going, to end: a red it carries is that landing's, not this one's.
-  defp previous(main_copy, git_dir, commit, red?) do
-    with {:ok, parents} <- git(main_copy, ["rev-list", "--parents", "-n", "1", commit]),
-         [_commit, parent | _merged] <- String.split(parents) do
-      if red? do
-        going = {{__MODULE__, :ci, Path.join([git_dir, "workflow", "ci", parent])}, self()}
-        :global.set_lock(going, [node()])
-        :global.del_lock(going, [node()])
-      end
-
-      parent
-    else
-      _root -> nil
-    end
-  end
-
-  # Kept as the last ci run, beside each recent run by the commit it ran on, and
-  # read against the run at `parent` (the last run when there is none). One run
-  # reads and writes it at a time. Not a `.json`: no work's id can name it.
-  defp compared(git_dir, commit, parent, verdict) do
-    path = Path.join([git_dir, "workflow", "ci-last"])
-    failures = if verdict["status"] == "passed", do: [], else: failure_keys(verdict)
-
-    was =
-      :global.trans({{__MODULE__, :ci_last, path}, self()}, fn ->
-        last =
-          with {:ok, json} <- File.read(path),
-               {:ok, %{} = last} <- Jason.decode(json) do
-            last
-          else
-            _none -> %{}
-          end
-
-        runs = last["runs"] || []
-
-        was =
-          case Enum.find(runs, &(&1["commit"] == parent)) do
-            %{"failures" => was} -> was
-            nil -> last["failures"] || []
-          end
-
-        runs =
-          Enum.take(
-            Enum.reject(runs, &(&1["commit"] == commit)) ++
-              [%{"commit" => commit, "failures" => failures}],
-            -20
-          )
-
-        File.mkdir_p!(Path.dirname(path))
-
-        File.write!(
-          path,
-          Jason.encode!(%{"commit" => commit, "failures" => failures, "runs" => runs})
-        )
-
-        was
-      end)
-
-    cond do
-      failures == [] -> :green
-      failures -- was == [] -> :known
-      Enum.all?(failures, &(&1 not in was)) -> {:new, verdict}
-      true -> {:mixed, verdict}
-    end
-  end
-
-  # A failure is the same where its tool, file and text are: a line moved is not
-  # new. A red with no failing result is its exit: its output differs run to run,
-  # and a run read again at the same tree has none.
-  defp failure_keys(%{"dir" => dir}) do
-    case Sarif.failures(dir) do
-      [_ | _] = failures -> Enum.uniq(for f <- failures, do: [f["tool"], f["file"], f["text"]])
-      [] -> [["ci", nil, "exit #{Sarif.meta(dir)["exit"]}"]]
+  defp pushed(main_copy, remote, branch, commit) do
+    with {:ok, _out} = ok <- git(main_copy, ["push", remote, "HEAD:" <> branch]) do
+      Workflow.Server.push("pushed", %{"branch" => branch, "commit" => commit})
+      ok
     end
   end
 
@@ -1169,7 +895,7 @@ defmodule Workflow.Checkout do
 
   # One read, change and write of a work's results file at a time: two updates
   # close together each read it before the other wrote, and one was lost. The
-  # lock is the file, as ci-last's is. Writes only a change; gives what was found.
+  # lock is the file. Writes only a change; gives what was found.
   defp update(root, id, change) do
     path = path(root, id)
 

@@ -4,7 +4,7 @@ defmodule Workflow.Story do
   for the next untested criterion (`specify`), the system runs the tests
   (`run`), a coder makes them pass (`work`), the system merges and checks
   (`certify`), a reviewer passes or fails it (`review`), and the system
-  merges it into the main copy (`promote`).
+  merges it into the main copy (`promote`), then waits on its `ci` event.
 
   Everything a story shares with a journey is in `Workflow.Parts`. The
   snapshot adds `criteria` (the work's own list) and `named` (the criterion
@@ -27,11 +27,13 @@ defmodule Workflow.Story do
       %{name: "work", actor: :coder, agent: Parts.coder(@noun)},
       %{name: "certify", actor: :system},
       %{name: "review", actor: :reviewer, agent: Parts.reviewer(@noun, @key)},
-      %{name: "promote", actor: :system}
+      %{name: "promote", actor: :system},
+      Parts.ci_step()
     ]
   end
 
   @impl true
+  def status(%{name: "ci"}, snapshot), do: Parts.ci(snapshot, "work")
   def status(step, snapshot), do: Parts.status(step, snapshot, @word, @key, @noun)
 
   @impl true

@@ -6,20 +6,6 @@ defmodule Workflow.AgentsTest do
 
   alias Workflow.Agents
 
-  test "ship-knowledge: criterion 2 a work's own read list is named in its first message, else nothing is said of reading" do
-    step = %{name: "work", actor: :coder, note: "fix the bug"}
-    work = %{"text" => "do it"}
-
-    refute Agents.message(step, work, []) =~ "read"
-
-    with_read = Map.put(work, "read", ["drills.md", "conventions.md"])
-    message = Agents.message(step, with_read, [])
-
-    assert message =~ "drills.md"
-    assert message =~ "conventions.md"
-    assert message =~ "before"
-  end
-
   test "static-review: a reviewer's prompt carries the section, a coder's does not" do
     Application.put_env(:workflow, :cmd, fn
       "git", ["diff", "--stat", "main...HEAD"], _opts -> {" 1 file changed, 2 insertions(+)\n", 0}
@@ -130,19 +116,6 @@ defmodule Workflow.AgentsTest do
     refute opts[:system_prompt] =~ "ignores"
   end
 
-  test "browser-for-pages: criterion 3 the QA and reviewer briefs name agent-browser and say when to use it" do
-    for brief <- [
-          Workflow.Parts.qa("criterion", "story").brief,
-          Workflow.Parts.reviewer("story", "criteria").brief
-        ] do
-      assert brief =~ "agent-browser"
-      assert brief =~ "page"
-
-      for command <- ["open", "snapshot -i", "fill", "click", "eval"],
-          do: assert(brief =~ command)
-    end
-  end
-
   test "coder-builds-its-own-story: the QA, coder and reviewer briefs say the work is this story's criteria and nothing from another story file" do
     for brief <- [
           Workflow.Parts.qa("criterion", "story").brief,
@@ -177,31 +150,5 @@ defmodule Workflow.AgentsTest do
 
     # An issue has no criteria; nothing is said of them.
     refute Agents.message(step, %{"text" => "fix it"}, []) =~ "own criteria"
-  end
-
-  test "the QA and reviewer briefs say how to get the app running for the browser" do
-    example =
-      "PORT=4123 mix phx.server & pid=$!; for i in $(seq 1 60); do curl -s -o /dev/null " <>
-        "localhost:4123/ && break; sleep 1; done; agent-browser open http://localhost:4123/dogs; " <>
-        "agent-browser eval '...'; agent-browser close; kill $pid; wait $pid"
-
-    for brief <- [
-          Workflow.Parts.qa("criterion", "story").brief,
-          Workflow.Parts.reviewer("story", "criteria").brief
-        ] do
-      # Nothing is running; the agent starts the app in the same command as its browser steps.
-      assert brief =~ "Nothing is running for you"
-      assert brief =~ "start the app yourself in the same command as your browser steps"
-      # In the background, on a port of its own; waits for it; kills it before the end.
-      assert brief =~ "in the background with `&`"
-      assert brief =~ "on a port of its own"
-      assert brief =~ "wait until it answers"
-      assert brief =~ "kill it before the command ends"
-      # The shell refuses `>` to a file: no redirection.
-      assert brief =~ "Your shell refuses `>` to a file, so use no redirection"
-      # The one example, offered as one kind of app among others.
-      assert brief =~ example
-      assert brief =~ "For a Phoenix app, for example"
-    end
   end
 end

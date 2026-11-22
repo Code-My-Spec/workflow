@@ -113,7 +113,7 @@ defmodule Workflow.StoryTest do
              current(["the user logs in"], [1], failed)
   end
 
-  test "passed, the system promotes; promoted, it is done" do
+  test "passed, the system promotes; promoted, it waits on ci: green it is done, red back to work" do
     passed = %{
       "run" => %{"status" => "passed"},
       "certify" => %{"status" => "passed"},
@@ -122,12 +122,18 @@ defmodule Workflow.StoryTest do
 
     assert %{name: "promote", actor: :system} = current(["the user logs in"], [1], passed)
 
-    assert current(
-             ["the user logs in"],
-             [1],
-             Map.put(passed, "promote", %{"status" => "promoted"})
-           ) ==
+    promoted = Map.put(passed, "promote", %{"status" => "promoted"})
+    assert %{name: "ci", actor: :external} = current(["the user logs in"], [1], promoted)
+
+    assert current(["the user logs in"], [1], Map.put(promoted, "ci", %{"verdict" => "green"})) ==
              nil
+
+    red = %{"verdict" => "red", "failing" => ["test/login_test.exs:4"]}
+
+    assert %{name: "work", actor: :coder, note: note} =
+             current(["the user logs in"], [1], Map.put(promoted, "ci", red))
+
+    assert note =~ "test/login_test.exs:4"
   end
 
   test "met-needs-a-test: criterion 1 - already met with no new commit goes back to qa for the test" do

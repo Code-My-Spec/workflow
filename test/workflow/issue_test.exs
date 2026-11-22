@@ -41,9 +41,31 @@ defmodule Workflow.IssueTest do
     assert %{name: "fix", note: "The review failed: no test"} = current(1, failed)
   end
 
-  test "passed, the system promotes; merged, it is done and not back at the start" do
+  test "passed, the system promotes; merged, it waits on ci, and green it is done and not back at the start" do
     passed = %{"certify" => %{"status" => "passed"}, "review" => %{"status" => "pass"}}
     assert %{name: "promote", actor: :system} = current(1, passed)
-    assert current(0, Map.put(passed, "promote", %{"status" => "promoted"})) == nil
+    promoted = Map.put(passed, "promote", %{"status" => "promoted"})
+    assert %{name: "ci", actor: :external} = current(0, promoted)
+    assert current(0, Map.put(promoted, "ci", %{"verdict" => "green"})) == nil
+    assert current(0, Map.put(promoted, "ci", %{"verdict" => "flaky"})) == nil
+  end
+
+  test "loop-waits-on-evidence: criterion 5 - ci red sends it back to the coder at fix with the failing tests" do
+    promoted = %{
+      "certify" => %{"status" => "passed"},
+      "review" => %{"status" => "pass"},
+      "promote" => %{"status" => "promoted"},
+      "ci" => %{
+        "verdict" => "red",
+        "tree" => "abc1234",
+        "commit" => "c9",
+        "failing" => ["test/a_test.exs:12", "test/b_test.exs:3"]
+      }
+    }
+
+    assert %{name: "fix", actor: :coder, note: note} = current(0, promoted)
+    assert note =~ "test/a_test.exs:12"
+    assert note =~ "test/b_test.exs:3"
+    assert note =~ "c9"
   end
 end

@@ -1,7 +1,6 @@
 defmodule Workflow.Sarif do
   @moduledoc """
-  An analysis directory: the SARIF files a recipe or `mix workflow.sarif` leaves
-  in it, the meta.json beside them that every writer merges its own part into,
+  An analysis directory: the SARIF files a recipe leaves in it, the meta.json beside them that every writer merges its own part into,
   and the verdict read off both.
   """
 
@@ -107,25 +106,6 @@ defmodule Workflow.Sarif do
 
       true ->
         %{"status" => "passed", "dir" => dir}
-    end
-  end
-
-  @doc """
-  Every failing result in `dir`'s `*.sarif` files: its tool, its own text, and
-  the file it names (as the SARIF has it) and the line, nil where it names none.
-  """
-  @spec failures(String.t()) :: [map()]
-  def failures(dir) do
-    for {name, result} <-
-          dir |> Path.join("*.sarif") |> Path.wildcard() |> Enum.flat_map(&errors/1) do
-      at = get_in(result, ["locations", Access.at(0), "physicalLocation"])
-
-      %{
-        "tool" => name,
-        "text" => result["message"]["text"],
-        "file" => get_in(at, ["artifactLocation", "uri"]),
-        "line" => get_in(at, ["region", "startLine"])
-      }
     end
   end
 

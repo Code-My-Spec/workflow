@@ -78,7 +78,8 @@ defmodule Workflow.ReportTest do
                %{"name" => "fix", "actor" => "coder"},
                %{"name" => "certify", "actor" => "system"},
                %{"name" => "review", "actor" => "reviewer"},
-               %{"name" => "promote", "actor" => "system"}
+               %{"name" => "promote", "actor" => "system"},
+               %{"name" => "ci", "actor" => "external"}
              ],
              "step" => "fix",
              "status" => "running",
@@ -99,9 +100,10 @@ defmodule Workflow.ReportTest do
     Checkout.record(main, "i1", "certify", %{"status" => "passed"})
     Checkout.record(main, "i1", "review", %{"status" => "pass"})
     Checkout.record(main, "i1", "promote", %{"status" => "promoted", "commit" => "abc123"})
+    Checkout.record(main, "i1", "ci", %{"event" => "ci", "verdict" => "green"})
 
     reports =
-      for _ <- 1..3 do
+      for _ <- 1..4 do
         assert_receive {:report, report}, 5_000
         report
       end

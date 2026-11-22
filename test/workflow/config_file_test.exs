@@ -76,31 +76,16 @@ defmodule Workflow.ConfigFileTest do
     |> Workflow.Router.call(Workflow.Router.init([]))
   end
 
-  test "the-loop-does-no-deploys: a config.json with \"deploy\" and \"go\" boots, logs one ignored line per key, refuses a provision, and has no POST /work/go",
+  test "the-loop-does-no-deploys: it refuses a provision and has no POST /work/go",
        %{tmp_dir: dir} do
     works = Path.join(dir, "works")
     File.mkdir_p!(Path.dirname(config_path(works)))
-    hash = Base.encode16(:crypto.hash(:sha256, "owner word"), case: :lower)
+    File.write!(config_path(works), Jason.encode!(%{"manager" => %{"repo" => dir}}))
 
-    File.write!(
-      config_path(works),
-      Jason.encode!(%{"deploy" => "uat", "go" => hash, "manager" => %{"repo" => dir}})
-    )
-
-    Application.delete_env(:workflow, :deploy)
-    on_exit(fn -> Application.delete_env(:workflow, :deploy) end)
-
-    {started, log} =
+    {started, _log} =
       ExUnit.CaptureLog.with_log(fn -> start_with(works_dir: works) end)
 
-    # Criterion 3: it boots, with one line per old key saying it is ignored, and keeps neither.
     assert {:ok, _apps} = started
-    lines = String.split(log, "\n")
-    assert Enum.count(lines, &(&1 =~ ~s("deploy") and &1 =~ "ignored")) == 1
-    assert Enum.count(lines, &(&1 =~ ~s("go") and &1 =~ "ignored")) == 1
-    refute log =~ hash
-    assert Application.get_env(:workflow, :deploy) == nil
-    assert Application.get_env(:workflow, :go) == nil
 
     # Criterion 1: a work of kind provision is refused, handed in or looked at.
     refute "provision" in Workflow.Run.kinds()

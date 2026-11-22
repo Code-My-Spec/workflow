@@ -12,11 +12,11 @@ copy-setup:
 copy-teardown:
 
 run dir:
-    mix workflow.sarif "{{dir}}/exunit.sarif" -- mix test
+    mix test
 
 certify dir:
-    mix workflow.sarif "{{dir}}/compiler.sarif" -- mix compile --warnings-as-errors
-    mix workflow.sarif "{{dir}}/exunit.sarif" -- mix test
+    mix compile --warnings-as-errors
+    mix test
 
 # Build the prod release and its Homebrew tarball (on an Apple silicon Mac), then
 # print the tarball's path and sha256 for packaging/codemyspec.rb. `app` is

@@ -214,7 +214,7 @@ defmodule Workflow.StoryFilesTest do
     [first | _] =
       git!(dir, ~w(log --reverse --format=%H main..HEAD)) |> String.split("\n", trim: true)
 
-    # Its workflow's file comes in the same commit (criterion 3).
+    # Written in the work's first commit.
     assert "proj/stories/s1.yml" in (git!(dir, ["show", "--name-only", "--format=", first])
                                      |> String.split("\n", trim: true))
 
@@ -232,55 +232,6 @@ defmodule Workflow.StoryFilesTest do
              questions:
                - Can an owner cancel a sent invite?
              """
-  end
-
-  test "story-shape: criterion 3 - handing in a story that names a workflow adds its id to workflows/<workflow>.yml in the same first commit, creating the file and never adding an id twice",
-       %{tmp_dir: dir} do
-    repo!(dir)
-
-    story = fn id ->
-      %{
-        "kind" => "story",
-        "id" => id,
-        "root" => dir,
-        "project" => "proj",
-        "title" => "Story #{id}",
-        "workflow" => "team-setup",
-        "story" => "As an owner I want #{id}.",
-        "rules" => [
-          %{"rule" => "Only an owner.", "scenarios" => [%{"happy" => "An owner does #{id}."}]}
-        ]
-      }
-    end
-
-    workflow_file = Path.join([dir, "proj", "workflows", "team-setup.yml"])
-
-    refute File.exists?(workflow_file)
-
-    Workflow.Run.step(story.("alpha"))
-
-    [first | _] =
-      git!(dir, ~w(log --reverse --format=%H main..HEAD)) |> String.split("\n", trim: true)
-
-    assert git!(dir, ["show", "--name-only", "--format=", first])
-           |> String.split("\n", trim: true)
-           |> Enum.sort() == ["proj/stories/alpha.yml", "proj/workflows/team-setup.yml"]
-
-    yml = File.read!(workflow_file)
-    assert yml =~ "team-setup"
-    assert yml =~ "alpha"
-
-    # A second story of the workflow is added after the first.
-    Workflow.Run.step(story.("beta"))
-    yml = File.read!(workflow_file)
-    assert [_, _] = Regex.scan(~r/alpha|beta/, yml)
-    assert :binary.match(yml, "alpha") < :binary.match(yml, "beta")
-
-    # An id already there is not added again.
-    Workflow.Run.step(story.("alpha"))
-    yml = File.read!(workflow_file)
-    assert length(Regex.scan(~r/alpha/, yml)) == 1
-    assert git!(dir, ~w(status --porcelain)) == ""
   end
 
   test "story-shape: criterion 4 - a story handed in the old way, with only text and criteria, is written to stories/<id>.yml as it is today",
@@ -313,29 +264,5 @@ defmodule Workflow.StoryFilesTest do
              """
 
     refute File.exists?(Path.join([dir, "proj", "workflows"]))
-  end
-
-  defp workflow_story(name) do
-    %{"kind" => "story", "id" => "walks", "project" => "proj", "workflow" => name}
-  end
-
-  test "a workflow named in plain words gets a file named from its words lower-cased and hyphenated, its name: line as written",
-       %{tmp_dir: dir} do
-    assert [{path, yml}] =
-             Workflow.StoryFile.workflow_file(
-               workflow_story("Keeping track of the dogs they walk"),
-               dir
-             )
-
-    assert path == "proj/workflows/keeping-track-of-the-dogs-they-walk.yml"
-    assert yml =~ "name: Keeping track of the dogs they walk\n"
-    assert yml =~ "walks"
-  end
-
-  test "a workflow name already lower-case and hyphenated names its file unchanged",
-       %{tmp_dir: dir} do
-    assert [{path, yml}] = Workflow.StoryFile.workflow_file(workflow_story("team-setup"), dir)
-    assert path == "proj/workflows/team-setup.yml"
-    assert yml =~ "name: team-setup\n"
   end
 end

@@ -132,47 +132,6 @@ defmodule Workflow.StoryFile do
   defp read_scalar(text), do: text
 
   @doc """
-  The story's workflow file, `workflows/<workflow>.yml` beside its stories (the
-  name lower-cased, each run of other than letters and digits one hyphen), as
-  `[{path, content}]`: its name and the ids of its stories in order, this one
-  added last unless it is there already. `[]` for a work that names no workflow.
-  """
-  @spec workflow_file(map(), String.t()) :: [{String.t(), String.t()}]
-  def workflow_file(%{"kind" => "story", "id" => id, "workflow" => name} = work, root)
-      when is_binary(name) do
-    file = Regex.replace(~r/[^a-z0-9]+/, String.downcase(name), "-")
-
-    if String.match?(file, ~r/[a-z0-9]/) do
-      path = in_project(work, "workflows", file)
-
-      ids =
-        case File.read(Path.join(root, path)) do
-          {:ok, yml} -> workflow_ids(yml)
-          {:error, _none} -> []
-        end
-
-      ids = if id in ids, do: ids, else: ids ++ [id]
-
-      [{path, IO.iodata_to_binary(["name: ", plain(name), "\nstories:", plain_list(ids, "  ")])}]
-    else
-      []
-    end
-  end
-
-  def workflow_file(_work, _root), do: []
-
-  defp workflow_ids(yml) do
-    ~r/^  - (.+)$/m
-    |> Regex.scan(yml)
-    |> Enum.map(fn [_, id] ->
-      case Jason.decode(id) do
-        {:ok, decoded} when is_binary(decoded) -> decoded
-        _plain -> id
-      end
-    end)
-  end
-
-  @doc """
   A story's criteria: those it was handed in with, or else one per scenario, in
   order, each its rule followed by the scenario's text.
   """

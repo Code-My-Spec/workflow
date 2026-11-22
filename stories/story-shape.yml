@@ -35,5 +35,4 @@ text: |-
 criteria:
   - "A story handed in with title, story, rules with their scenarios, questions and a workflow is written to stories/<id>.yml in the shape given in the text, in the work's first commit."
   - "The work's criteria are its scenarios in order, each given as its rule and the scenario text, and QA and the coder walk them one at a time just as they walk criteria today."
-  - "Handing in a story that names a workflow adds its id to workflows/<workflow>.yml in the same first commit. The file is created if it is missing, and an id already there is not added again."
   - "A story handed in the old way, with only text and criteria, still works and is written to stories/<id>.yml as it is today."
