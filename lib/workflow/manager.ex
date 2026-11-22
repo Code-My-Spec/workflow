@@ -480,9 +480,14 @@ defmodule Workflow.Manager do
   # text and criteria), committed as a recorded story is, before its work starts.
   # What it returns is added to what starting the work says.
   # A provision is kept the same way, as provisions/<id>.yml.
+  # An issue handed in again with other text than its recorded file is refused, as
+  # a journey handed in with fields over its recorded file is: the file is not
+  # written over and its work is not started or resumed.
   defp issue_recorded(%{"kind" => kind} = work, %{"repo" => repo})
        when kind in ["issue", "provision"] and is_binary(repo) do
     path = Workflow.StoryFile.issue_path(work)
+    kept = Map.take(work, ["id", "kind", "title", "text", "criteria", "target"])
+    yaml = Workflow.StoryFile.yaml(kept)
 
     cond do
       # Not a git checkout: nothing is recorded, and starting the work says so.
@@ -493,9 +498,15 @@ defmodule Workflow.Manager do
         {:refused,
          "Refused: #{path} has uncommitted changes in the main copy. Nothing was started."}
 
+      kind == "issue" and File.read(Path.join(repo, path)) not in [{:ok, yaml}, {:error, :enoent}] ->
+        {:refused,
+         "Refused: issue #{work["id"]} is already recorded, and the text handed in differs " <>
+           "from the recorded file #{path}, which is not written over (as a journey " <>
+           "handed in again with different content is refused). Nothing was started or " <>
+           "resumed. Hand it in with the recorded text, or under a new id."}
+
       true ->
-        kept = Map.take(work, ["id", "kind", "title", "text", "criteria", "target"])
-        files = [{path, Workflow.StoryFile.yaml(kept)}]
+        files = [{path, yaml}]
 
         case Checkout.commit_files(repo, files, "#{kind} #{work["id"]}: the #{kind} as handed in") do
           {:error, why} -> " (#{path} not recorded: #{inspect(why)})"
