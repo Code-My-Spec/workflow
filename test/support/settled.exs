@@ -18,17 +18,14 @@ defmodule Workflow.Settled do
   @doc """
   Waits until nothing the loop started is running: as `settled/0`, and also what
   it cannot see, since the turns run under spawn_monitor, which drops `$callers`:
-  the tasks a work's turns start (its telling of the manager), a landing's deploy,
+  the tasks a work's turns start (its telling of the manager),
   a checkout's own tellings and pushes, and a step's report to the server. Only for a test whose runs all end by
   themselves; one held in a stand-in agent is waited on for good.
   """
   def idle do
     settled()
-    gone(fn -> Enum.filter(Process.list(), &loop?/1) ++ deployers() end)
+    gone(fn -> Enum.filter(Process.list(), &loop?/1) end)
   end
-
-  @doc "Waits until no landing's deploy is running."
-  def deployed, do: gone(&deployers/0)
 
   defp gone(running) do
     case running.() -- [self()] do
@@ -65,12 +62,5 @@ defmodule Workflow.Settled do
       nil ->
         false
     end
-  end
-
-  defp deployers do
-    for {Workflow.Run, :deploy, _target} = name <- :global.registered_names(),
-        pid = :global.whereis_name(name),
-        is_pid(pid),
-        do: pid
   end
 end

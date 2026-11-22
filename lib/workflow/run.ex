@@ -20,8 +20,7 @@ defmodule Workflow.Run do
   @templates %{
     "issue" => Workflow.Issue,
     "story" => Workflow.Story,
-    "journey" => Workflow.Journey,
-    "provision" => Workflow.Provision
+    "journey" => Workflow.Journey
   }
 
   @doc "The kinds of work there is a template for."
@@ -278,21 +277,16 @@ defmodule Workflow.Run do
   end
 
   # A landing is checked by the project's `just ci` at the landed commit, with the
-  # work's checkout and agents kept, idle, until it answers. Green deploys that
-  # commit. Red deploys and reverts nothing: a red the previous ci run already had
-  # is not reported again, a red new with this landing goes back to the work, and
-  # one that cannot (the work is gone, or the red is partly older) is told to the
-  # manager. A provision's own fix landing deploys nothing more, so a failing
-  # deploy cannot hand itself in again and again.
-  defp ci(%{"kind" => "provision"}, _snapshot, _commit), do: :ok
-
-  defp ci(%{"id" => id, "root" => root} = work, %{main_copy: main_copy} = snapshot, commit) do
+  # work's checkout and agents kept, idle, until it answers. Red reverts nothing:
+  # a red the previous ci run already had is not reported again, a red new with
+  # this landing goes back to the work, and one that cannot (the work is gone, or
+  # the red is partly older) is told to the manager.
+  defp ci(%{"id" => id, "root" => root} = work, %{main_copy: main_copy}, commit) do
     say(work, "ci started at #{commit}")
 
     case Checkout.ci(main_copy, commit, work["project"]) do
       :green ->
         say(work, "ci: passed at #{commit}")
-        deploy(work, snapshot, commit)
 
       # Green after a retry: the tests that failed first are kept as the work's ci
       # result, so its report to the server names them.
@@ -301,8 +295,6 @@ defmodule Workflow.Run do
 
         if File.dir?(root),
           do: Checkout.record(root, id, "ci", %{"status" => "passed", "flakes" => flakes})
-
-        deploy(work, snapshot, commit)
 
       :known ->
         say(work, "ci: failed at #{commit}, with the failures the previous ci run had")
@@ -342,55 +334,6 @@ defmodule Workflow.Run do
 
     if Workflow.Manager.configured(),
       do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", text) end)
-  end
-
-  # A green landing hands in a provision for the configured `deploy` target, at
-  # the landed commit, in the background.
-  defp deploy(work, %{head: head, main_copy: main_copy}, commit) do
-    if target = Application.get_env(:workflow, :deploy) do
-      provision =
-        work
-        |> Map.take(["project", "agent", "agents"])
-        |> Map.merge(%{
-          "kind" => "provision",
-          "id" => "#{target}-#{head}",
-          "target" => target,
-          "at" => commit,
-          "repo" => work["repo"] || main_copy
-        })
-
-      name = {__MODULE__, :deploy, target}
-
-      # Under the lock the deployer also takes to leave, so no landing is lost as it goes.
-      :global.trans({name, self()}, fn ->
-        case :global.whereis_name(name) do
-          :undefined -> :global.register_name(name, spawn(fn -> deploying(name, provision) end))
-          deployer -> send(deployer, {:deploy, provision})
-        end
-      end)
-    end
-  end
-
-  # One deploy per target at a time; the landings made while it ran leave only the
-  # newest to run after it.
-  defp deploying(name, provision) do
-    # Its system steps are run here, so the next deploy waits on them.
-    start(provision, & &1.())
-
-    next =
-      :global.trans({name, self()}, fn ->
-        with nil <- newest(nil), do: :global.unregister_name(name) && nil
-      end)
-
-    if next, do: deploying(name, next)
-  end
-
-  defp newest(latest) do
-    receive do
-      {:deploy, provision} -> newest(provision)
-    after
-      0 -> latest
-    end
   end
 
   @doc """

@@ -70,24 +70,73 @@ defmodule Workflow.ConfigFileTest do
     |> Workflow.Router.call(Workflow.Router.init([]))
   end
 
-  test "go-needs-the-owners-word: the \"go\" hash in config.json is read at boot and decides the go",
+  defp posted(method, path, body) do
+    conn(method, path, Jason.encode!(body))
+    |> put_req_header("content-type", "application/json")
+    |> Workflow.Router.call(Workflow.Router.init([]))
+  end
+
+  test "the-loop-does-no-deploys: a config.json with \"deploy\" and \"go\" boots, logs one ignored line per key, refuses a provision, and has no POST /work/go",
        %{tmp_dir: dir} do
     works = Path.join(dir, "works")
     File.mkdir_p!(Path.dirname(config_path(works)))
     hash = Base.encode16(:crypto.hash(:sha256, "owner word"), case: :lower)
-    File.write!(config_path(works), Jason.encode!(%{"go" => hash}))
 
-    restart_with(works_dir: works)
+    File.write!(
+      config_path(works),
+      Jason.encode!(%{"deploy" => "uat", "go" => hash, "manager" => %{"repo" => dir}})
+    )
 
-    conn =
-      conn(:post, "/work/go", Jason.encode!(%{"id" => "p1", "word" => "a guess"}))
-      |> put_req_header("content-type", "application/json")
+    Application.delete_env(:workflow, :deploy)
+    on_exit(fn -> Application.delete_env(:workflow, :deploy) end)
+
+    {started, log} =
+      ExUnit.CaptureLog.with_log(fn -> start_with(works_dir: works) end)
+
+    # Criterion 3: it boots, with one line per old key saying it is ignored, and keeps neither.
+    assert {:ok, _apps} = started
+    lines = String.split(log, "\n")
+    assert Enum.count(lines, &(&1 =~ ~s("deploy") and &1 =~ "ignored")) == 1
+    assert Enum.count(lines, &(&1 =~ ~s("go") and &1 =~ "ignored")) == 1
+    refute log =~ hash
+    assert Application.get_env(:workflow, :deploy) == nil
+    assert Application.get_env(:workflow, :go) == nil
+
+    # Criterion 1: a work of kind provision is refused, handed in or looked at.
+    refute "provision" in Workflow.Run.kinds()
+
+    assert posted(:post, "/work/run", %{"kind" => "provision", "id" => "p1", "root" => dir}).status ==
+             422
+
+    looked =
+      conn(:get, "/works/p1?kind=provision&root=#{URI.encode_www_form(dir)}")
       |> Workflow.Router.call(Workflow.Router.init([]))
 
-    # Refused for the word, not for want of a hash.
-    assert conn.status == 403
-    assert Jason.decode!(conn.resp_body)["error"] =~ "owner's word"
-    refute conn.resp_body =~ hash
+    assert looked.status == 422
+
+    # Criterion 1: the manager's tool schemas offer no provision kind and no target.
+    listed =
+      posted(:post, "/mcp/manager", %{"jsonrpc" => "2.0", "id" => 1, "method" => "tools/list"})
+
+    assert %{"result" => %{"tools" => [_ | _] = tools}} = Jason.decode!(listed.resp_body)
+
+    for %{"inputSchema" => schema} <- tools, properties = schema["properties"] || %{} do
+      refute Map.has_key?(properties, "target")
+      refute "provision" in (get_in(properties, ["kind", "enum"]) || [])
+    end
+
+    # Criterion 2: POST /work/go is an unknown route, and no work moves on.
+    go =
+      posted(:post, "/work/go", %{
+        "kind" => "provision",
+        "id" => "p1",
+        "root" => dir,
+        "word" => "owner word"
+      })
+
+    assert go.status == 404
+    refute Jason.decode!(go.resp_body)["error"] =~ "/work/go"
+    refute File.exists?(Path.join(works, "p1.json"))
   end
 
   test "config-file: criterion 1 - POST /manager answers after a plain start with a config file naming a manager",
@@ -136,20 +185,6 @@ defmodule Workflow.ConfigFileTest do
 
     assert_received {:ran, "codex",
                      ["queue", "--thread", "thread-7", "--message", "please look at this"]}
-  end
-
-  test "prod-waits-for-the-owner: criterion 5 - \"deploy\": \"prod\" in config.json refuses the start, saying a landing never deploys prod by itself",
-       %{tmp_dir: dir} do
-    works = Path.join(dir, "works")
-    File.mkdir_p!(Path.dirname(config_path(works)))
-    File.write!(config_path(works), Jason.encode!(%{"deploy" => "prod"}))
-
-    # A refused start must leave no deploy setting behind for the tests after it.
-    Application.delete_env(:workflow, :deploy)
-    on_exit(fn -> Application.delete_env(:workflow, :deploy) end)
-
-    assert {:error, {:workflow, reason}} = start_with(works_dir: works)
-    assert inspect(reason) =~ "never deploys prod by itself"
   end
 
   test "config-file: criterion 3 - with no config file, the service starts and works as it does today",

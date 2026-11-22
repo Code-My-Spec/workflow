@@ -101,56 +101,6 @@ defmodule Workflow.Router do
     end
   end
 
-  # The owner's go for a waiting prod provision, at the tree it is on now: the work as
-  # handed in. Only from the service's own address, and only with the owner's word:
-  # no chat or manager tool reaches it, and an agent's plain call is refused.
-  post "/work/go" do
-    # The word is taken off the work at once: nothing the loop writes ever carries it.
-    {word, work} = Map.pop(conn.body_params, "word")
-    root = work["root"] || (work["repo"] && Workflow.Checkout.root(work["repo"], work["id"]))
-
-    with true <- conn.remote_ip in [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}] || :forbidden,
-         true <- owners_word?(Application.get_env(:workflow, :go), word),
-         %{"kind" => "provision", "id" => "" <> id} <- work,
-         :ok <- plain(id),
-         "" <> _ <- root do
-      Workflow.Checkout.record(root, id, "go", %{"status" => "go"})
-      answer(conn, work, Workflow.Run.start(work))
-    else
-      :forbidden ->
-        reply(conn, 403, %{error: "only the service's own address gives the go"})
-
-      :no_word_set ->
-        reply(conn, 403, %{
-          error:
-            "no go word is set: put \"go\": the sha256 hex of the owner's word in " <>
-              "#{Workflow.ConfigFile.path()} (printf %s 'word' | shasum -a 256) and restart"
-        })
-
-      :wrong_word ->
-        reply(conn, 403, %{error: "the go needs the owner's word: {\"id\", \"word\"}"})
-
-      {:refused, why} ->
-        reply(conn, 422, %{error: why})
-
-      _other ->
-        reply(conn, 422, %{error: "name a provision's id and its root or repo"})
-    end
-  end
-
-  # Whether `word` is the owner's: its sha256 against the hash held from config.json at
-  # boot, compared in constant time. Neither is ever logged or written anywhere.
-  #
-  # Known limit: an agent with write access to config.json and the means to restart the
-  # service could replace the hash. This stops a plain call, not that.
-  defp owners_word?("" <> hash, "" <> word) do
-    given = Base.encode16(:crypto.hash(:sha256, word), case: :lower)
-    Plug.Crypto.secure_compare(given, String.downcase(hash)) || :wrong_word
-  end
-
-  defp owners_word?("" <> _hash, _no_word), do: :wrong_word
-  defp owners_word?(_no_hash, _word), do: :no_word_set
-
   # Tells the project manager something, where there is one: {"say": "..."}.
   post "/manager" do
     case manager(conn.body_params) do
@@ -183,7 +133,7 @@ defmodule Workflow.Router do
   match _ do
     reply(conn, 404, %{
       error:
-        "POST /work/run, GET /works/:id, POST /work/say, POST /work/go, POST /manager, POST /mcp, " <>
+        "POST /work/run, GET /works/:id, POST /work/say, POST /manager, POST /mcp, " <>
           "POST /mcp/manager"
     })
   end

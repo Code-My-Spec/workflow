@@ -47,147 +47,10 @@ defmodule Workflow.RouterTest do
     |> Workflow.Router.call(Workflow.Router.init([]))
   end
 
-  # A prod provision handed in and waiting on its owner, with `just` faked to say what it runs.
-  defp waiting_prod(dir) do
+  test "local-api-refuses-foreign-hosts: a foreign Host is refused and does nothing, and localhost is served",
+       %{tmp_dir: dir} do
     fake_cmd(dir)
-    test = self()
-    stand_in = Application.get_env(:workflow, :cmd)
-
-    Application.put_env(:workflow, :cmd, fn
-      "just", args, _opts ->
-        send(test, {:just, args})
-        {"", 0}
-
-      command, args, opts ->
-        stand_in.(command, args, opts)
-    end)
-
-    was = Application.get_env(:workflow, :works_dir)
-    Application.put_env(:workflow, :works_dir, Path.join(dir, "works"))
-    on_exit(fn -> Application.put_env(:workflow, :works_dir, was) end)
-
-    File.mkdir_p!(Path.join([dir, "workflow", "provision"]))
-    File.write!(Path.join([dir, "workflow", "provision", "prod.steps"]), "a\n")
-
-    work = %{
-      "kind" => "provision",
-      "id" => "p1",
-      "root" => dir,
-      "project" => "workflow",
-      "target" => "prod"
-    }
-
-    assert post_run(work).status == 200
-    refute_received {:just, ["provision" | _]}
-    work
-  end
-
-  @word "the owner's own word"
-  @hash Base.encode16(:crypto.hash(:sha256, @word), case: :lower)
-
-  # The go word's hash as config.json would give it at boot, or none.
-  defp hold_go(hash) do
-    was = Application.fetch_env(:workflow, :go)
-
-    if hash,
-      do: Application.put_env(:workflow, :go, hash),
-      else: Application.delete_env(:workflow, :go)
-
-    on_exit(fn ->
-      case was do
-        {:ok, held} -> Application.put_env(:workflow, :go, held)
-        :error -> Application.delete_env(:workflow, :go)
-      end
-    end)
-  end
-
-  defp post_go(body) do
-    conn(:post, "/work/go", Jason.encode!(body))
-    |> put_req_header("content-type", "application/json")
-    |> Workflow.Router.call(Workflow.Router.init([]))
-  end
-
-  # The run holds the checkout's lock until it lands: waited out, so it never lands
-  # in a later test. Waited on the run itself, not on a clock.
-  defp wait_out(work) do
-    settled()
-    refute Workflow.Run.look(work).working
-  end
-
-  test "go-needs-the-owners-word: criterion 1 - with no go hash set, the go is refused, says how to set one, and runs nothing",
-       %{tmp_dir: dir} do
-    work = waiting_prod(dir)
-    hold_go(nil)
-
-    conn = post_go(Map.put(work, "word", @word))
-
-    assert conn.status == 403
-    assert %{"error" => error} = Jason.decode!(conn.resp_body)
-    assert error =~ "\"go\""
-    assert error =~ "sha256"
-    assert error =~ "config.json"
-    refute_receive {:just, ["provision" | _]}, 200
-  end
-
-  test "go-needs-the-owners-word: criterion 2 - a wrong word, or none, is refused and runs nothing",
-       %{tmp_dir: dir} do
-    work = waiting_prod(dir)
-    hold_go(@hash)
-
-    assert post_go(Map.put(work, "word", "a guess")).status == 403
-    assert post_go(work).status == 403
-    refute_receive {:just, ["provision" | _]}, 200
-  end
-
-  test "go-needs-the-owners-word: criterion 3 - the owner's word releases the waiting prod provision",
-       %{tmp_dir: dir} do
-    work = waiting_prod(dir)
-    hold_go(@hash)
-
-    conn = post_go(Map.put(work, "word", @word))
-
-    assert conn.status == 200
-    wait_out(work)
-    assert_received {:just, ["provision", "a", _dir]}
-  end
-
-  test "go-needs-the-owners-word: criterion 4 - neither the word nor the hash is in any log line or file the loop writes",
-       %{tmp_dir: dir} do
-    work = waiting_prod(dir)
-    hold_go(@hash)
-
-    log =
-      ExUnit.CaptureLog.capture_log([level: :debug], fn ->
-        assert post_go(Map.put(work, "word", "a guess")).status == 403
-        conn = post_go(Map.put(work, "word", @word))
-        assert conn.status == 200
-        refute conn.resp_body =~ @word
-        refute conn.resp_body =~ @hash
-        wait_out(work)
-        assert_received {:just, ["provision", "a", _dir]}
-      end)
-
-    refute log =~ @word
-    refute log =~ @hash
-
-    written =
-      Path.join(dir, "**") |> Path.wildcard(match_dot: true) |> Enum.filter(&File.regular?/1)
-
-    assert written != []
-
-    for file <- written do
-      text = File.read!(file)
-      refute text =~ @word, "#{file} carries the word"
-      refute text =~ @hash, "#{file} carries the hash"
-    end
-  end
-
-  test "local-api-refuses-foreign-hosts: a foreign Host is refused and does nothing, localhost is served, and a go without the owner's word does not move the work",
-       %{tmp_dir: dir} do
-    work = waiting_prod(dir)
-    # Made up here, at run time: never a real word.
-    word = Base.encode16(:crypto.strong_rand_bytes(16))
-    hold_go(Base.encode16(:crypto.hash(:sha256, word), case: :lower))
+    work = %{"kind" => "issue", "id" => "i1", "root" => "/checkout", "project" => "workflow"}
 
     served = fn url, body ->
       conn(:post, url, Jason.encode!(body))
@@ -195,53 +58,19 @@ defmodule Workflow.RouterTest do
       |> Workflow.LocalOnly.call(Workflow.LocalOnly.init([]))
     end
 
-    # A foreign Host, with or without a port, is refused even with the word.
-    for url <- ["http://evil.example/work/go", "http://evil.example:4000/work/go"] do
-      conn = served.(url, Map.put(work, "word", word))
+    # A foreign Host, with or without a port, is refused, and nothing is run for it.
+    for url <- ["http://evil.example/work/run", "http://evil.example:4000/work/run"] do
+      conn = served.(url, work)
       assert conn.status == 403
       assert Jason.decode!(conn.resp_body)["error"] =~ "Host"
     end
 
-    refute_receive {:just, ["provision" | _]}, 200
+    refute_received {"git", _args}
 
-    # A localhost go without the owner's word is refused, and the work does not move on.
-    assert served.("http://localhost:4000/work/go", work).status == 403
-    assert served.("http://localhost/work/go", Map.put(work, "word", "a guess")).status == 403
-    refute_receive {:just, ["provision" | _]}, 200
-    refute Workflow.Run.look(work).working
-
-    # 127.0.0.1 with the owner's word is served as today.
-    assert served.("http://127.0.0.1:4000/work/go", Map.put(work, "word", word)).status == 200
-    wait_out(work)
-    assert_received {:just, ["provision", "a", _dir]}
-  end
-
-  test "prod-waits-for-the-owner: POST /work/go from any address but the service's own is refused and runs nothing",
-       %{tmp_dir: dir} do
-    fake_cmd(dir)
-    test = self()
-    stand_in = Application.get_env(:workflow, :cmd)
-
-    Application.put_env(:workflow, :cmd, fn
-      "just", args, _opts ->
-        send(test, {:just, args})
-        {"", 0}
-
-      command, args, opts ->
-        stand_in.(command, args, opts)
-    end)
-
-    work = %{"kind" => "provision", "id" => "p1", "root" => dir, "target" => "prod"}
-
-    conn =
-      conn(:post, "/work/go", Jason.encode!(work))
-      |> Map.put(:remote_ip, {10, 0, 0, 5})
-      |> put_req_header("content-type", "application/json")
-      |> Workflow.Router.call(Workflow.Router.init([]))
-
-    assert conn.status == 403
-    refute_received {:just, ["provision" | _]}
-    refute File.exists?(Path.join([dir, "workflow", "p1.json"]))
+    # localhost and 127.0.0.1, with or without a port, are served as today.
+    for url <- ["http://localhost:4000/work/run", "http://127.0.0.1/work/run"] do
+      assert served.(url, work).status == 200
+    end
   end
 
   test "handing in a work that names root still works", %{tmp_dir: dir} do
