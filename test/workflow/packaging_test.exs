@@ -27,20 +27,11 @@ defmodule Workflow.PackagingTest do
     assert package =~ @tarball
     assert package =~ "shasum -a 256"
 
-    # 2. The formula's only placeholders are its url and sha256 lines.
+    # 2. The formula is a template: its version, url and sha256 are placeholders.
     formula = read("packaging/codemyspec-loop.rb")
-
-    placeholders =
-      formula
-      |> String.split("\n")
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&String.starts_with?(&1, "#"))
-      |> Enum.filter(&(&1 =~ ~r/REPLACE_ME|0{64}|"0\.0\.0"/))
-
-    assert [url, sha] = placeholders
-    assert url =~ ~r/^url ".*#{Regex.escape(@tarball)}"$/
-    assert sha =~ ~r/^sha256 "REPLACE_ME"$/
-    assert formula =~ ~s(version "3.0.0")
+    assert formula =~ ~s(version "__VERSION__")
+    assert formula =~ ~s(url "__URL__")
+    assert formula =~ ~s(sha256 "__SHA256__")
     assert formula =~ ~s(depends_on "git")
     assert formula =~ ~s(depends_on "just")
     assert formula =~ ~s(bin/"workflow")

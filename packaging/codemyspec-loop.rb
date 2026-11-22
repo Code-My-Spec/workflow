@@ -2,13 +2,14 @@
 #
 # Installs the plain `mix release` tarball that `just package` builds (bundled
 # ERTS, no Elixir/Erlang needed) and exposes it as the `workflow` command.
-# After a build, edit only the url and sha256 lines (see packaging/README.md).
+# A template: `just release` fills in __VERSION__, __URL__ and __SHA256__ and
+# writes the result to the tap (see packaging/README.md).
 class CodemyspecLoop < Formula
   desc "CodeMySpec loop: runs agents on works, dials the CodeMySpec server"
   homepage "https://codemyspec.com"
-  version "3.0.0"
-  url "https://REPLACE_ME/codemyspec-loop-darwin-arm64.tar.gz"
-  sha256 "REPLACE_ME"
+  version "__VERSION__"
+  url "__URL__"
+  sha256 "__SHA256__"
 
   depends_on arch: :arm64
   depends_on "git"
