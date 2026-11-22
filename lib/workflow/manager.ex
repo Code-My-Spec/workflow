@@ -1,8 +1,7 @@
 defmodule Workflow.Manager do
   @moduledoc """
   The project manager: the one agent that outlives a work. It is told things,
-  one message at a time, and can do six: hand a work in, record a story without
-  building it, decide for a work's owner, look at a work, tell a running work something,
+  one message at a time, and can do five: hand a work in, decide for a work's owner, look at a work, tell a running work something,
   and stop a work for good. It does not code, review, test or read the
   repository; a work's own agents do.
 
@@ -40,9 +39,7 @@ defmodule Workflow.Manager do
   guess an answer. Hand in a story that still has open questions only when the person says to \
   go ahead anyway.
 
-  Record every story the person settles, and hand in only what they ask to have built.
-
-  When the chat passes personas on, record them (with their research text, if any).
+  Hand in only what the person asks to have built.
 
   When a work is done, say so in one line. When a work waits on its owner, do not decide for \
   the owner unless the owner has told you how; say what is waiting. When a work is stopped, look \
@@ -56,8 +53,7 @@ defmodule Workflow.Manager do
   in an issue with the failure's text, without asking anyone. The loop is not a person and will \
   not say go ahead. Ask only about what a person must decide.
 
-  A failure of the loop itself (a record refused because the main copy has uncommitted changes, \
-  a step sent back three times with the same tree and note) is not a fault in this app, and no \
+  A failure of the loop itself (a step sent back three times with the same tree and note) is not a fault in this app, and no \
   coder here can fix it: tell the person in plain words and never hand it in as an issue in this \
   app. Hand in an issue only for a failure of the app's own code or checks.
 
@@ -179,7 +175,7 @@ defmodule Workflow.Manager do
   defp prompt?(_message), do: false
 
   @doc """
-  The manager's own tools (hand_in, record, decide, look, tell, stop) for the given
+  The manager's own tools (hand_in, decide, look, tell, stop) for the given
   manager settings: what its turns run with, and what POST /mcp/manager offers.
   """
   @spec tools(map()) :: [Alloy.Tool.Inline.t()]
@@ -188,7 +184,6 @@ defmodule Workflow.Manager do
       Enum.map(
         [
           hand_in(manager),
-          record(manager),
           decide(manager),
           look(manager),
           told(manager),
@@ -267,115 +262,6 @@ defmodule Workflow.Manager do
         end
       end
     )
-  end
-
-  @recorded ~w(id title workflow story rules questions)
-
-  defp record(manager) do
-    Alloy.Tool.inline(
-      name: "record",
-      description:
-        "Record a settled story in the main copy (stories/<id>.yml and its workflow file), " <>
-          "committed, without starting any work.",
-      input_schema: %{
-        type: "object",
-        properties:
-          story_properties()
-          |> Map.take([:id, :title, :workflow, :story, :rules, :questions])
-          |> Map.put(:personas, persona_properties())
-      },
-      execute: fn
-        %{"personas" => personas}, _context when is_list(personas) ->
-          record_personas(personas, manager)
-
-        input, _context ->
-          record_story(input, manager)
-      end
-    )
-  end
-
-  @persona_fields ~w(name main wants today uses refuses pays guess)
-
-  defp persona_properties do
-    fields = Map.new(@persona_fields ++ ["research"], &{&1, %{type: "string"}})
-    %{type: "array", items: %{type: "object", properties: fields, required: ["name"]}}
-  end
-
-  # personas.yml in the main copy's project, with personas/<name>.md for each
-  # persona given research, all in one commit, starting no work.
-  defp record_personas(personas, manager) do
-    repo = manager["repo"]
-    dir = manager["project"] || "."
-    path = Path.join(dir, "personas.yml") |> Path.relative()
-
-    cond do
-      Enum.any?(personas, &(not is_map(&1) or blank?(&1["name"]))) ->
-        {:ok, "Refused: every persona needs a name, and one has none. Nothing was recorded."}
-
-      Checkout.changed?(repo, path) ->
-        {:ok, "Refused: #{path} has uncommitted changes in the main copy. Nothing was recorded."}
-
-      true ->
-        research =
-          for %{"research" => text, "name" => name} <- personas,
-              not blank?(text),
-              do: {Path.join([dir, "personas", "#{name}.md"]) |> Path.relative(), text}
-
-        files = [{path, personas_yaml(personas)} | research]
-
-        case Checkout.commit_files(repo, files, "personas: as recorded") do
-          :ok -> {:ok, "Personas recorded in #{path}."}
-          :unchanged -> {:ok, "Personas already recorded as they are, in #{path}."}
-          {:error, why} -> {:ok, "Personas not recorded: #{inspect(why)}"}
-        end
-    end
-  end
-
-  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
-
-  # By hand: a JSON string is a YAML double-quoted scalar.
-  defp personas_yaml(personas) do
-    Enum.map_join(personas, fn persona ->
-      @persona_fields
-      |> Enum.filter(&is_binary(persona[&1]))
-      |> Enum.with_index()
-      |> Enum.map_join(fn {field, i} ->
-        "#{if i == 0, do: "- ", else: "  "}#{field}: #{Jason.encode!(persona[field])}\n"
-      end)
-    end)
-  end
-
-  defp record_story(input, manager) do
-    if Enum.any?(~w(id title story), &blank?(input[&1])),
-      do: {:ok, "Refused: a story needs an id, a title and a story. Nothing was recorded."},
-      else: record_story!(input, manager)
-  end
-
-  defp record_story!(input, manager) do
-    repo = manager["repo"]
-
-    work =
-      input
-      |> Map.take(@recorded)
-      |> Map.put("kind", "story")
-      |> Map.merge(Map.take(configured_for(manager), ["project"]))
-
-    path = Workflow.StoryFile.path(work)
-    yaml = Workflow.StoryFile.yaml(work)
-
-    # A person's own edit is refused; the same story left written by a failed
-    # record is not, and is committed now.
-    if Checkout.changed?(repo, path) and File.read(Path.join(repo, path)) != {:ok, yaml} do
-      {:ok, "Refused: #{path} has uncommitted changes in the main copy. Nothing was recorded."}
-    else
-      files = [{path, yaml} | Workflow.StoryFile.workflow_file(work, repo)]
-
-      case Checkout.commit_files(repo, files, "story #{work["id"]}: the story as recorded") do
-        :ok -> {:ok, "#{work["id"]}: recorded in #{path}."}
-        :unchanged -> {:ok, "#{work["id"]}: already recorded as it is, in #{path}."}
-        {:error, why} -> {:ok, "#{work["id"]}: not recorded: #{inspect(why)}"}
-      end
-    end
   end
 
   # What a work is handed in with: the old text and criteria (a journey's stages),
@@ -463,7 +349,7 @@ defmodule Workflow.Manager do
         {:none, path} ->
           {:refused,
            "Refused: no story #{work["id"]} is recorded (there is no #{path} in the main " <>
-             "copy). Record it first, or hand it in whole."}
+             "copy). Hand it in whole."}
       end
     else
       work
@@ -551,7 +437,7 @@ defmodule Workflow.Manager do
 
   defp issue_recorded(_work, _manager), do: ""
 
-  # What a work, or a story recorded, is described by.
+  # What a work is described by.
   defp story_properties do
     %{
       kind: %{type: "string", enum: Run.kinds()},

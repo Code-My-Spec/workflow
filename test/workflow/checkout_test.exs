@@ -135,7 +135,7 @@ defmodule Workflow.CheckoutTest do
     fake(dir, "t1", 0)
 
     assert %{"status" => "passed", "dir" => run} =
-             Checkout.certify("/root", %{main: "trunk"}, "proj")
+             Checkout.certify("/root", %{main: "trunk"}, "proj", "i1")
 
     assert_received {:just, "certify", ^run, "/root/proj"}
     assert run_dirs(dir, "t1") == [run]
@@ -145,7 +145,7 @@ defmodule Workflow.CheckoutTest do
        %{tmp_dir: dir} do
     fake(dir, "t1", 0)
 
-    assert %{"status" => "passed", "dir" => run} = Checkout.test("/root", "proj")
+    assert %{"status" => "passed", "dir" => run} = Checkout.test("/root", "proj", "i1")
 
     assert_received {:just, "run", ^run, "/root/proj"}
     assert run_dirs(dir, "t1") == [run]
@@ -156,7 +156,7 @@ defmodule Workflow.CheckoutTest do
   } do
     fake(dir, "t1", 1)
 
-    assert %{"status" => "failed", "note" => "output"} = Checkout.test("/root", nil)
+    assert %{"status" => "failed", "note" => "output"} = Checkout.test("/root", nil, "i1")
   end
 
   test "keep keeps the work beside its results, less agent and agents; a second keep replaces it",
@@ -218,154 +218,10 @@ defmodule Workflow.CheckoutTest do
     end
   end
 
-  # A checkout at tree t1 whose `just` fails or passes by turns, as `outcomes` says
-  # (`{:fail, text}` writes `text` as an error result; `:pass` writes nothing).
-  defp scripted(dir, outcomes) do
-    {:ok, left} = Agent.start_link(fn -> outcomes end)
-    test = self()
-
-    Application.put_env(:workflow, :cmd, fn command, args, opts ->
-      case {command, args} do
-        {"git", ["rev-parse", "--path-format=absolute", "--git-common-dir"]} ->
-          {dir <> "\n", 0}
-
-        {"git", ["rev-parse", "HEAD^{tree}"]} ->
-          {"t1\n", 0}
-
-        {"git", ["merge" | _]} ->
-          {"", 0}
-
-        {"just", [recipe, run]} ->
-          send(test, {:just, recipe, run, opts[:cd]})
-
-          case Agent.get_and_update(left, fn [next | rest] -> {next, rest} end) do
-            {:fail, text} ->
-              File.write!(Path.join(run, "compiler.sarif"), sarif(text))
-              {"", 1}
-
-            :pass ->
-              {"", 0}
-          end
-      end
-    end)
-
-    on_exit(fn -> Application.delete_env(:workflow, :cmd) end)
-  end
-
-  # A manager with no agent: an inbox, where what it is told is kept.
-  defp inbox(dir) do
-    keys = [:manager, :works_dir, :recipients]
-    was = for key <- keys, do: {key, Application.get_env(:workflow, key)}
-
-    on_exit(fn ->
-      for {key, value} <- was do
-        if value,
-          do: Application.put_env(:workflow, key, value),
-          else: Application.delete_env(:workflow, key)
-      end
-    end)
-
-    Application.put_env(:workflow, :works_dir, Path.join(dir, "works"))
-    Application.put_env(:workflow, :manager, %{"repo" => "/nowhere/repo"})
-    Application.delete_env(:workflow, :recipients)
-  end
-
   # What the manager was told, once the loop's background telling has ended.
   defp told do
     idle()
     Workflow.Messages.unread("manager")
-  end
-
-  test "flake-rerun: criterion 1 - a recipe that fails twice at one tree fails the step with the second run's note, two run folders kept",
-       %{tmp_dir: dir} do
-    inbox(dir)
-
-    for {step, recipe} <- [
-          {fn -> Checkout.certify("/root", %{main: "trunk"}, "proj") end, "certify"},
-          {fn -> Checkout.test("/root", "proj") end, "run"}
-        ] do
-      File.rm_rf!(analysis_dir(dir, "t1"))
-      scripted(dir, [{:fail, "first failure"}, {:fail, "second failure"}])
-
-      assert %{"status" => "failed", "note" => note, "dir" => second} = step.()
-      assert note =~ "second failure"
-      refute note =~ "first failure"
-      assert [{^recipe, first}, {^recipe, ^second}] = justs()
-      assert run_dirs(dir, "t1") == [first, second]
-    end
-
-    assert told() == []
-  end
-
-  test "flake-rerun: criterion 2 - a recipe that fails then passes at one tree passes the step, keeps both runs, and tells the manager once it was flaky",
-       %{tmp_dir: dir} do
-    inbox(dir)
-
-    for {step, recipe} <- [
-          {fn -> Checkout.test("/root", "proj") end, "run"},
-          {fn -> Checkout.certify("/root", %{main: "trunk"}, "proj") end, "certify"}
-        ] do
-      File.rm_rf!(analysis_dir(dir, "t1"))
-      scripted(dir, [{:fail, "flaky #{recipe} failure"}, :pass])
-
-      assert %{"status" => "passed", "dir" => second} = step.()
-      assert [{^recipe, first}, {^recipe, ^second}] = justs()
-      assert run_dirs(dir, "t1") == [first, second]
-      assert File.exists?(Path.join(first, "compiler.sarif"))
-
-      assert [%{"text" => text}] = told()
-      assert text =~ "flaky"
-      assert text =~ "t1"
-      assert text =~ "just #{recipe}"
-      assert text =~ "flaky #{recipe} failure"
-
-      # Told once: nothing more comes.
-      idle()
-      assert Workflow.Messages.unread("manager") == []
-    end
-  end
-
-  test "flake-rerun: criterion 3 - a recipe that passes on its first run is not run again",
-       %{tmp_dir: dir} do
-    for {step, recipe} <- [
-          {fn -> Checkout.test("/root", "proj") end, "run"},
-          {fn -> Checkout.certify("/root", %{main: "trunk"}, "proj") end, "certify"}
-        ] do
-      File.rm_rf!(analysis_dir(dir, "t1"))
-      scripted(dir, [:pass])
-
-      assert %{"status" => "passed", "dir" => run} = step.()
-      assert [{^recipe, ^run}] = justs()
-      assert run_dirs(dir, "t1") == [run]
-    end
-  end
-
-  test "flake-rerun: criterion 4 - a failed verdict read back from a run kept at the tree is never rerun",
-       %{tmp_dir: dir} do
-    scripted(dir, [])
-
-    for recipe <- ["run", "certify"] do
-      kept = Path.join(analysis_dir(dir, "t1"), if(recipe == "run", do: "100", else: "200"))
-      File.mkdir_p!(kept)
-      File.write!(Path.join(kept, "compiler.sarif"), sarif("kept #{recipe} failure"))
-
-      Workflow.Sarif.merge_meta(kept, %{
-        "recipe" => recipe,
-        "at" => "x",
-        "took_ms" => 1,
-        "exit" => 1
-      })
-    end
-
-    assert %{"status" => "failed", "note" => run_note} = Checkout.test("/root", "proj")
-
-    assert %{"status" => "failed", "note" => certify_note} =
-             Checkout.certify("/root", %{main: "trunk"}, "proj")
-
-    assert run_note =~ "kept run failure"
-    assert certify_note =~ "kept certify failure"
-    assert justs() == []
-    assert length(run_dirs(dir, "t1")) == 2
   end
 
   test "evidence-runs: criterion 1 - a run writes its SARIF files and one meta.json into analysis/<tree>/<unix time>/, the folder just is handed",
@@ -374,7 +230,7 @@ defmodule Workflow.CheckoutTest do
     before = System.os_time(:second)
 
     assert %{"status" => "failed", "note" => note, "dir" => run} =
-             Checkout.certify("/root", %{main: "trunk"}, "proj")
+             Checkout.certify("/root", %{main: "trunk"}, "proj", "i1")
 
     assert note =~ "boom"
     assert_received {:just, "certify", ^run, "/root/proj"}
@@ -396,15 +252,14 @@ defmodule Workflow.CheckoutTest do
     {:ok, count} = Agent.start_link(fn -> 0 end)
     failing(dir, fn -> "failure #{Agent.get_and_update(count, &{&1 + 1, &1 + 1})}" end)
 
-    # Each failing analysis is run twice (flake-rerun): four run folders in all.
-    assert %{"dir" => first} = Checkout.test("/root", nil)
+    assert %{"dir" => first} = Checkout.test("/root", nil, "i1")
     Checkout.afresh(dir, "i1")
-    assert %{"dir" => second} = Checkout.test("/root", nil)
+    assert %{"dir" => second} = Checkout.test("/root", nil, "i1")
 
     assert first != second
-    assert [_, ^first, _, ^second] = run_dirs(dir, "t1")
-    assert Path.join(first, "compiler.sarif") |> File.read!() =~ "failure 2"
-    assert Path.join(second, "compiler.sarif") |> File.read!() =~ "failure 4"
+    assert [^first, ^second] = run_dirs(dir, "t1")
+    assert Path.join(first, "compiler.sarif") |> File.read!() =~ "failure 1"
+    assert Path.join(second, "compiler.sarif") |> File.read!() =~ "failure 2"
     assert %{"recipe" => "run"} = Workflow.Sarif.meta(first)
     assert %{"recipe" => "run"} = Workflow.Sarif.meta(second)
   end
@@ -463,15 +318,14 @@ defmodule Workflow.CheckoutTest do
     failing(dir, fn -> "already failing" end)
 
     assert %{"status" => "failed", "dir" => run} = Checkout.analyse("/root", "proj", "certify")
-    # Failed twice (flake-rerun): the second run is the step's.
-    assert [{"certify", first}, {"certify", ^run}] = justs()
+    assert [{"certify", ^run}] = justs()
 
     assert %{"status" => "failed", "note" => note, "dir" => ^run} =
              Checkout.analyse("/root", "proj", "certify")
 
     assert note =~ "already failing"
     refute_received {:just, _recipe, _run, _cd}
-    assert run_dirs(dir, "t1") == [first, run]
+    assert run_dirs(dir, "t1") == [run]
   end
 
   test "a recipe that failed with no error result is still failed when read again", %{
@@ -504,17 +358,15 @@ defmodule Workflow.CheckoutTest do
 
     assert %{"dir" => old_certify} = Checkout.analyse("/root", nil, "certify")
     assert %{"dir" => old_run} = Checkout.analyse("/root", nil, "run")
-    # Each fails twice (flake-rerun), so each is run twice.
-    assert [{"certify", c1}, {"certify", ^old_certify}, {"run", r1}, {"run", ^old_run}] = justs()
+    assert [{"certify", ^old_certify}, {"run", ^old_run}] = justs()
 
     Checkout.afresh(dir, "i1")
 
     assert %{"dir" => new_certify} = Checkout.analyse("/root", nil, "certify")
     assert %{"dir" => new_run} = Checkout.analyse("/root", nil, "run")
-    assert [{"certify", c2}, {"certify", ^new_certify}, {"run", r2}, {"run", ^new_run}] = justs()
+    assert [{"certify", ^new_certify}, {"run", ^new_run}] = justs()
 
-    assert run_dirs(dir, "t1") ==
-             [c1, old_certify, r1, old_run, c2, new_certify, r2, new_run]
+    assert run_dirs(dir, "t1") == [old_certify, old_run, new_certify, new_run]
 
     assert File.exists?(Path.join(old_certify, "compiler.sarif"))
     assert %{"recipe" => "certify", "exit" => 0} = Workflow.Sarif.meta(old_certify)
@@ -889,5 +741,165 @@ defmodule Workflow.CheckoutTest do
 
     File.write!(Path.join(dir, "a.ex"), "two")
     assert Checkout.ignored_changes(dir) == []
+  end
+
+  # A copy whose `just` sends the test its env and leaves evidence (exunit.sarif
+  # and g1/shot.png) beside an old.sarif already there, exiting `exit`.
+  defp leaves_evidence(dir, exit) do
+    test = self()
+    project = Path.join(dir, "copy")
+    evidence = Path.join([project, ".code_my_spec", "evidence"])
+    File.mkdir_p!(evidence)
+    File.write!(Path.join(evidence, "old.sarif"), "{}")
+
+    Application.put_env(:workflow, :cmd, fn
+      "git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], _opts ->
+        {dir <> "\n", 0}
+
+      "git", ["rev-parse", "HEAD^{tree}"], _opts ->
+        {"t1\n", 0}
+
+      "git", ["merge" | _], _opts ->
+        {"", 0}
+
+      "just", [_recipe, _run], opts ->
+        send(test, {:env, opts[:env]})
+        File.mkdir_p!(Path.join(evidence, "g1"))
+        File.write!(Path.join(evidence, "exunit.sarif"), "{\"runs\": []}")
+        File.write!(Path.join([evidence, "g1", "shot.png"]), "png")
+        {"1 test, 1 failure", exit}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :cmd) end)
+    {project, evidence}
+  end
+
+  # The server line, faked: presign answered with a url per file (or, not
+  # answering, gone), and every push sent to the test.
+  defp server_line(answers?) do
+    test = self()
+    was = Application.get_env(:workflow, :server)
+    Application.put_env(:workflow, :server, %{"project_id" => "p1"})
+
+    on_exit(fn ->
+      if was,
+        do: Application.put_env(:workflow, :server, was),
+        else: Application.delete_env(:workflow, :server)
+    end)
+
+    pid = spawn(fn -> serve(test, answers?) end)
+    Process.register(pid, Workflow.Server)
+    on_exit(fn -> Process.exit(pid, :kill) end)
+    pid
+  end
+
+  defp serve(test, answers?) do
+    receive do
+      {:"$gen_call", from, {:push, "presign", payload}} ->
+        send(test, {:presign, payload})
+        unless answers?, do: exit(:gone)
+        puts = Map.new(payload["files"], &{&1, "https://up.example/#{&1}"})
+        GenServer.reply(from, {:ok, %{"puts" => puts}})
+        serve(test, answers?)
+
+      {:push, event, payload} ->
+        send(test, {:push, event, payload})
+        serve(test, answers?)
+    end
+  end
+
+  defp puts_to_test do
+    test = self()
+
+    Application.put_env(:workflow, :http, fn :put, url, opts ->
+      send(test, {:put, url, opts})
+      {:ok, 200, ""}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :http) end)
+  end
+
+  test "loop-waits-on-evidence: criterion 6 - certify is given its evidence context and correlation, and the new evidence is presigned, PUT, marked uploaded and deleted",
+       %{tmp_dir: dir} do
+    {project, evidence} = leaves_evidence(dir, 0)
+    server_line(true)
+    puts_to_test()
+
+    Checkout.certify(project, %{main: "trunk"}, nil, "i1")
+
+    assert_received {:env, env}
+    assert {"EVIDENCE_CONTEXT", "certify/i1"} in env
+    assert {"EVIDENCE_CORRELATION", uuid} = List.keyfind(env, "EVIDENCE_CORRELATION", 0)
+    assert uuid =~ ~r/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+    assert_received {:presign, %{"project_id" => "p1", "files" => files}}
+    assert Enum.sort(files) == ["exunit.sarif", "g1/shot.png"]
+    assert_received {:put, "https://up.example/exunit.sarif", put}
+    assert put[:body] == "{\"runs\": []}"
+    refute Keyword.has_key?(put, :auth)
+    assert_received {:put, "https://up.example/g1/shot.png", _put}
+    assert_received {:push, "uploaded", %{"project_id" => "p1", "guids" => ["g1"]}}
+
+    refute File.exists?(Path.join(evidence, "exunit.sarif"))
+    refute File.exists?(Path.join(evidence, "g1"))
+    assert File.exists?(Path.join(evidence, "old.sarif"))
+  end
+
+  test "loop-waits-on-evidence: criterion 6 - with no server, or one that never answers, the verdict is the recipe's exit and the evidence is kept",
+       %{tmp_dir: dir} do
+    puts_to_test()
+
+    # No server line at all.
+    {project, evidence} = leaves_evidence(Path.join(dir, "none"), 1)
+
+    {lone, log} =
+      ExUnit.CaptureLog.with_log(fn -> Checkout.test(project, nil, "i1") end)
+
+    assert log =~ "evidence not uploaded"
+    assert File.exists?(Path.join(evidence, "exunit.sarif"))
+    refute_received {:put, _url, _opts}
+
+    # A server that goes without answering presign.
+    {project, evidence} = leaves_evidence(Path.join(dir, "gone"), 1)
+    server_line(false)
+
+    {unanswered, log} =
+      ExUnit.CaptureLog.with_log(fn -> Checkout.test(project, nil, "i1") end)
+
+    assert_received {:presign, _payload}
+    assert log =~ "evidence not uploaded"
+    assert File.exists?(Path.join([evidence, "g1", "shot.png"]))
+    refute_received {:push, "uploaded", _payload}
+
+    assert lone["status"] == "failed"
+    assert unanswered["status"] == lone["status"]
+  end
+
+  test "loop-waits-on-evidence: criterion 7 - promote pushes pushed with the branch and commit once the main copy is pushed",
+       %{tmp_dir: dir} do
+    git = fn cwd, args ->
+      {out, 0} = System.cmd("git", args, cd: cwd, stderr_to_stdout: true)
+      String.trim(out)
+    end
+
+    remote = Path.join(dir, "remote.git")
+    main = Path.join(dir, "main")
+    work = main <> "-w1"
+    File.mkdir_p!(main)
+
+    git.(dir, ["init", "--bare", remote])
+    git.(main, ["init", "-b", "main"])
+    git.(main, ["config", "user.name", "t"])
+    git.(main, ["config", "user.email", "t@example.com"])
+    git.(main, ["remote", "add", "origin", remote])
+    git.(main, ["commit", "--allow-empty", "-m", "first"])
+    git.(main, ["worktree", "add", "-b", "story/w1", work])
+    git.(work, ["commit", "--allow-empty", "-m", "work"])
+
+    server_line(true)
+
+    assert %{"status" => "promoted"} = Checkout.promote(work, %{main_copy: main})
+    head = git.(main, ["rev-parse", "HEAD"])
+    assert_receive {:push, "pushed", %{"branch" => "dev", "commit" => ^head}}, 1_000
   end
 end

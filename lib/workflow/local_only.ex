@@ -20,7 +20,10 @@ defmodule Workflow.LocalOnly do
     else
       conn
       |> put_resp_content_type("application/json")
-      |> send_resp(403, Jason.encode!(%{error: "only a Host of 127.0.0.1 or localhost is served"}))
+      |> send_resp(
+        403,
+        Jason.encode!(%{error: "only a Host of 127.0.0.1 or localhost is served"})
+      )
       |> halt()
     end
   end

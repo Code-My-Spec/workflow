@@ -775,7 +775,7 @@ defmodule Workflow.RouterTest do
              Jason.decode!(conn.resp_body)
 
     names = tools |> Enum.map(& &1["name"]) |> Enum.sort()
-    assert names == ["decide", "hand_in", "inbox", "look", "record", "say", "stop", "tell"]
+    assert names == ["decide", "hand_in", "inbox", "look", "say", "stop", "tell"]
 
     for tool <- tools do
       assert %{"type" => "object"} = tool["inputSchema"]
@@ -932,7 +932,7 @@ defmodule Workflow.RouterTest do
 
     listed = post_to("/mcp/manager", %{"jsonrpc" => "2.0", "id" => 1, "method" => "tools/list"})
     assert listed.status == 200
-    assert %{"result" => %{"tools" => [_, _, _, _, _, _, _, _]}} = Jason.decode!(listed.resp_body)
+    assert %{"result" => %{"tools" => [_, _, _, _, _, _, _]}} = Jason.decode!(listed.resp_body)
 
     # No recipient named manager: an inbox, read by whoever acts as the manager.
     assert %{"result" => %{"content" => [%{"text" => kept}]} = result} =
@@ -991,7 +991,7 @@ defmodule Workflow.RouterTest do
     assert %{"result" => %{"tools" => tools}} = Jason.decode!(listed.resp_body)
 
     assert tools |> Enum.map(& &1["name"]) |> Enum.sort() ==
-             ~w(decide hand_in inbox look record say stop tell)
+             ~w(decide hand_in inbox look say stop tell)
 
     # A say to the manager is delivered by its recipient kind: one user message on its socket.
     assert %{"result" => %{"content" => [%{"text" => answer}]} = result} =

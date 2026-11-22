@@ -44,8 +44,8 @@ defmodule Workflow do
     do:
       %{note: nil} |> Map.merge(Map.take(definition, [:name, :actor, :agent])) |> Map.merge(needs)
 
-  @doc "The role a step may wake: its actor, unless that is the system or the owner."
+  @doc "The role a step may wake: its actor, unless that is the system, the owner or an event."
   @spec wakes(step() | nil) :: atom() | nil
-  def wakes(%{actor: actor}) when actor not in [:system, :owner], do: actor
+  def wakes(%{actor: actor}) when actor not in [:system, :owner, :external], do: actor
   def wakes(_step), do: nil
 end

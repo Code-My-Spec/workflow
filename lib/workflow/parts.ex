@@ -12,23 +12,6 @@ defmodule Workflow.Parts do
   differ.
   """
 
-  # The house style, said to everyone who writes and held to by the reviewer.
-  @external_resource Path.join(:code.priv_dir(:workflow), "knowledge/ponytail.md")
-  @lean File.read!(Path.join(:code.priv_dir(:workflow), "knowledge/ponytail.md"))
-
-  # Said to those who check a page; the session is the work's own (AGENT_BROWSER_SESSION).
-  @browser "When a part is a page someone uses, look at it in a browser with `agent-browser`: " <>
-             "`agent-browser open <url>`, `agent-browser snapshot -i` for what is on the page and " <>
-             "its refs, `agent-browser fill <ref> <text>`, `agent-browser click <ref>`, and " <>
-             "`agent-browser eval <js>` for what a snapshot does not show.\n\n" <>
-             "Nothing is running for you: start the app yourself in the same command as your " <>
-             "browser steps, in the background with `&` and on a port of its own; wait until it " <>
-             "answers, and kill it before the command ends. Your shell refuses `>` to a file, so " <>
-             "use no redirection. For a Phoenix app, for example:\n\n" <>
-             "    PORT=4123 mix phx.server & pid=$!; for i in $(seq 1 60); do curl -s -o /dev/null " <>
-             "localhost:4123/ && break; sleep 1; done; agent-browser open http://localhost:4123/dogs; " <>
-             "agent-browser eval '...'; agent-browser close; kill $pid; wait $pid\n\n"
-
   # Seen live: the other story files in the checkout (stories/*.yml) are readable,
   # and a coder built, and a reviewer judged by, a neighbouring story's criteria.
   defp own(noun),
@@ -51,7 +34,7 @@ defmodule Workflow.Parts do
           "It must fail against the code as it stands. If the code already does what the " <>
           "#{word} asks, keep the honest test, commit it, and call `decide` with pass and " <>
           "why: never weaken or twist a test to make it fail.\n\n" <>
-          own(noun) <> @browser <> @lean
+          own(noun)
     }
   end
 
@@ -60,7 +43,7 @@ defmodule Workflow.Parts do
       tools: [:read, :edit, :write, :bash],
       brief:
         "You are the coder on one #{noun} in this checkout. Make its failing tests pass, " <>
-          "commit with git, then end your turn.\n\n" <> own(noun) <> @lean
+          "commit with git, then end your turn.\n\n" <> own(noun)
     }
   end
 
@@ -71,9 +54,8 @@ defmodule Workflow.Parts do
       brief:
         "You review one #{noun} in this checkout, and change nothing. Read the diff since " <>
           "the branch you are told (`git diff <branch>...HEAD`). Does it meet its #{key}, " <>
-          "does each have a test that fails without it, and does it keep to the rule its " <>
-          "writers were given? Then call `decide` once: pass, or fail with a note saying " <>
-          "what must change.\n\n" <> own(noun) <> @browser <> "The rule:\n\n" <> @lean
+          "and does each have a test that fails without it? Then call `decide` once: pass, " <>
+          "or fail with a note saying what must change.\n\n" <> own(noun)
     }
   end
 
@@ -160,26 +142,47 @@ defmodule Workflow.Parts do
 
   def status(%{name: "promote"}, snapshot, _word, _key, _noun) do
     case found(snapshot, "promote") do
-      %{"status" => "promoted"} -> landed(snapshot, "work")
+      %{"status" => "promoted"} -> :done
       %{"status" => "refused", "note" => note} -> {:to, "work", %{note: note}}
       %{"status" => "conflicted", "note" => note} -> {:to, "work", %{note: note, stop: true}}
       nil -> %{}
     end
   end
 
-  @doc "A landing whose ci failed goes back to the `back` step with the ci note, as a failed certify does."
-  def landed(snapshot, back) do
+  @doc """
+  The `ci` step, after promote: done once a ci event is recorded at the tree,
+  green or flaky. Red goes back to the `back` step with the failing tests, as a
+  failed certify does. With none yet, the work waits on it: an old server never
+  sends one, and the manager releases the work by hand.
+  """
+  def ci(snapshot, back) do
     case found(snapshot, "ci") do
-      %{"status" => "failed", "note" => note} -> {:to, back, %{note: note}}
-      _green_or_not_run -> :done
+      %{"verdict" => "red"} = ci ->
+        failing = Enum.map_join(List.wrap(ci["failing"]), "", &"\n- #{&1}")
+
+        {:to, back,
+         %{
+           note:
+             "ci failed at the commit this work landed as (#{ci["commit"]}), tree " <>
+               "#{ci["tree"]}. The failing tests:#{failing}\n\nFix them here, and commit."
+         }}
+
+      %{} ->
+        :done
+
+      nil ->
+        %{note: "Waiting on ci at the commit this work landed as."}
     end
   end
 
+  @doc "The step every template ends with: done once its event, `ci`, is recorded."
+  def ci_step, do: %{name: "ci", actor: :external}
+
   def perform("run", %{"root" => root} = work, _snapshot),
-    do: Workflow.Checkout.test(root, work["project"])
+    do: Workflow.Checkout.test(root, work["project"], work["id"])
 
   def perform("certify", %{"root" => root} = work, snapshot),
-    do: Workflow.Checkout.certify(root, snapshot, work["project"])
+    do: Workflow.Checkout.certify(root, snapshot, work["project"], work["id"])
 
   def perform("promote", %{"root" => root}, snapshot),
     do: Workflow.Checkout.promote(root, snapshot)

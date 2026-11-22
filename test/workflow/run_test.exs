@@ -30,11 +30,6 @@ defmodule Workflow.RunTest do
       send(test, {:cwd, command, args, call_opts[:cd]})
 
       case {command, args} do
-        # A ci checkout is cut detached at the landed commit, its path before the commit.
-        {"git", ["worktree", "add", "--detach", path, _commit]} ->
-          File.mkdir_p!(path)
-          {"", 0}
-
         {"git", ["worktree", "add", "-b", _branch, path | _at]} ->
           File.mkdir_p!(path)
           {"", 0}
@@ -144,50 +139,25 @@ defmodule Workflow.RunTest do
              %{name: "fix", actor: :coder},
              %{name: "certify", actor: :system},
              %{name: "review", actor: :reviewer},
-             %{name: "promote", actor: :system}
+             %{name: "promote", actor: :system},
+             %{name: "ci", actor: :external}
            ]
   end
 
   test "look-steps: criterion 2", %{tmp_dir: dir} do
     assert %{steps: steps} = Workflow.Run.look(checkout(dir, 1, 0))
 
-    assert Enum.map(steps, & &1.state) == ["done", "current", "waiting", "waiting"]
+    assert Enum.map(steps, & &1.state) == ["done", "current", "waiting", "waiting", "waiting"]
   end
 
-  # A reviewed issue at tree t1, ready to land as commit c1.
-  # The stand-in `just ci` exits `ci`, or the project has no ci recipe for `:none`;
-  # `sarif` writes the results of each ci run into its folder.
-  defp landing(dir, ci, sarif \\ fn _run -> :ok end) do
-    was = Application.get_env(:workflow, :works_dir)
-    Application.put_env(:workflow, :works_dir, Path.join(dir, "works"))
-    on_exit(fn -> Application.put_env(:workflow, :works_dir, was) end)
-
-    work =
-      checkout(dir, 1, 0)
-      |> Map.merge(%{"review" => "pass", "repo" => dir, "project" => "workflow"})
-
-    stand_in = Application.get_env(:workflow, :cmd)
-
-    Application.put_env(:workflow, :cmd, fn
-      "just", ["--show", "ci"] = args, opts ->
-        stand_in.("just", args, opts)
-        if ci == :none, do: {"error: Justfile does not contain recipe `ci`", 1}, else: {"", 0}
-
-      # No retry recipe: a failing ci runs once more.
-      "just", ["--show", "retry"] = args, opts ->
-        stand_in.("just", args, opts)
-        {"error: Justfile does not contain recipe `retry`", 1}
-
-      "just", ["ci", run] = args, opts ->
-        stand_in.("just", args, opts)
-        sarif.(run)
-        {"ci: 1 failure", ci}
-
-      command, args, opts ->
-        stand_in.(command, args, opts)
-    end)
-
-    work
+  # The ci for the commit work i1 lands as, already in at tree "t<commits>": green unless said.
+  defp ci_in(dir, commits \\ 1, payload \\ %{"verdict" => "green"}) do
+    path = Path.join([dir, "workflow", "i1.json"])
+    File.mkdir_p!(Path.dirname(path))
+    kept = if File.exists?(path), do: Jason.decode!(File.read!(path)), else: %{}
+    at = Map.get(kept, "t#{commits}", %{})
+    ci = Map.put(payload, "event", "ci")
+    File.write!(path, Jason.encode!(Map.put(kept, "t#{commits}", Map.put(at, "ci", ci))))
   end
 
   # The manager, configured, with what it is told sent to the test.
@@ -219,167 +189,6 @@ defmodule Workflow.RunTest do
     end)
   end
 
-  test "ci-gates-uat: criterion 1 - a landing runs `just ci` at exactly the landed commit, in a checkout of its own, keeping its run folder",
-       %{tmp_dir: dir} do
-    work = landing(dir, 0)
-    ci_root = Path.join([dir, "workflow", "ci", "c1"])
-    project = Path.join(ci_root, "workflow")
-
-    assert Workflow.Run.step(work) == nil
-
-    # Cut detached at the landed commit, so a later landing does not move it.
-    assert_received {"git", ["worktree", "add", "--detach", ^ci_root, "c1"]}
-    assert_received {:cwd, "just", ["ci", run], ^project}
-    assert Path.dirname(run) == Path.join([dir, "workflow", "analysis", "t1"])
-    assert %{"recipe" => "ci", "exit" => 0} = Workflow.Sarif.meta(run)
-  end
-
-  test "ci-gates-uat: criterion 1 - a project with no ci recipe counts as green",
-       %{tmp_dir: dir} do
-    work = landing(dir, :none)
-
-    assert Workflow.Run.step(work) == nil
-    assert_received {"just", ["--show", "ci"]}
-    refute_received {"just", ["ci", _run]}
-
-    idle()
-    assert File.read!(Workflow.Run.log(work)) =~ "ci: passed at c1"
-    refute_received {"git", ["worktree", "add", "-b" | _]}
-  end
-
-  test "ci-gates-uat: criterion 3 - ci red twice, new with this landing, goes back to the work at its work step with the ci note; nothing is reverted",
-       %{tmp_dir: dir} do
-    work = landing(dir, 1)
-
-    assert %{name: "fix", actor: :coder, note: note} = Workflow.Run.step(work)
-    assert note =~ "`just ci` failed twice"
-    refute note =~ "deployed"
-    assert note =~ "c1"
-    assert note =~ "ci: 1 failure"
-
-    # Run once more before it counted, each run in a folder of its own.
-    assert_received {"just", ["ci", first]}
-    assert_received {"just", ["ci", second]}
-    assert first != second
-
-    idle()
-    refute_received {"git", ["worktree", "add", "-b" | _]}
-    refute_received {"git", ["revert" | _]}
-  end
-
-  test "ci-gates-uat: criterion 3 - ci red with the failures the previous dev commit's ci run had reports nothing again",
-       %{tmp_dir: dir} do
-    manager()
-    work = landing(dir, 1)
-
-    # The first landing's red is new: it goes back to that work.
-    assert %{name: "fix"} = Workflow.Run.step(work)
-
-    # The next landing is red with the same failures: it ends, and nobody is told.
-    assert Workflow.Run.step(Map.put(work, "id", "i2")) == nil
-    idle()
-    refute_received {:manager_told, _notice}
-    refute_received {"git", ["worktree", "add", "-b" | _]}
-  end
-
-  test "ci-gates-uat: criterion 3 - ci red with failures that belong to no one work tells the manager once, in plain words",
-       %{tmp_dir: dir} do
-    manager()
-
-    # The previous dev commit's ci run had one of the two failures.
-    File.mkdir_p!(Path.join(dir, "workflow"))
-
-    File.write!(
-      Path.join([dir, "workflow", "ci-last"]),
-      Jason.encode!(%{"commit" => "c0", "failures" => [["exunit", nil, "a fails"]]})
-    )
-
-    failing = fn text -> %{"level" => "error", "message" => %{"text" => text}} end
-
-    sarif = fn run ->
-      File.write!(
-        Path.join(run, "exunit.sarif"),
-        Jason.encode!(%{
-          "runs" => [
-            %{
-              "tool" => %{"driver" => %{"name" => "exunit"}},
-              "results" => [failing.("a fails"), failing.("b fails")]
-            }
-          ]
-        })
-      )
-    end
-
-    work = landing(dir, 1, sarif)
-
-    assert Workflow.Run.step(work) == nil
-    idle()
-    assert_received {:manager_told, notice}
-    assert notice =~ "issue i1"
-    assert notice =~ "c1"
-    assert notice =~ "Nothing was reverted."
-    refute notice =~ "deployed"
-    assert notice =~ "b fails"
-    refute_received {:manager_told, _again}
-    refute_received {"git", ["worktree", "add", "-b" | _]}
-  end
-
-  test "ci-retries-with-a-retry-recipe: criterion 3 - a landing whose ci fails and whose retry passes names the flaky test to the manager and in the work's report to the server",
-       %{tmp_dir: dir} do
-    manager()
-
-    sarif = fn run ->
-      File.write!(
-        Path.join(run, "exunit.sarif"),
-        Jason.encode!(%{
-          "runs" => [
-            %{
-              "tool" => %{"driver" => %{"name" => "exunit"}},
-              "results" => [
-                %{
-                  "level" => "error",
-                  "message" => %{"text" => "test a flaky one (ATest)\nassert false"},
-                  "locations" => [
-                    %{
-                      "physicalLocation" => %{"artifactLocation" => %{"uri" => "test/a_test.exs"}}
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        })
-      )
-    end
-
-    work = landing(dir, 1, sarif)
-    test = self()
-    inner = Application.get_env(:workflow, :cmd)
-
-    # The project has a retry recipe, and its retry passes.
-    Application.put_env(:workflow, :cmd, fn
-      "just", ["--show", "retry"], _opts -> {"retry dir first:", 0}
-      "just", ["retry", _run, _first] = args, _opts -> send(test, {"just", args}) && {"", 0}
-      command, args, opts -> inner.(command, args, opts)
-    end)
-
-    # The test stands in for the loop's line to the server.
-    Process.register(self(), Workflow.Server)
-
-    assert Workflow.Run.step(work) == nil
-    assert_received {"just", ["ci", first]}
-    assert_received {"just", ["retry", second, ^first]}
-    assert first != second
-    refute_received {"just", ["ci", _again]}
-
-    flake = %{"file" => "test/a_test.exs", "test" => "test a flaky one (ATest)"}
-    idle()
-    assert_received {:report, %{"work" => "i1", "flakes" => [^flake]}}
-
-    assert_received {:manager_told, told}
-    assert told =~ "test/a_test.exs: test a flaky one (ATest)"
-  end
-
   test "look-steps: criterion 3", %{tmp_dir: dir} do
     work = checkout(dir, 0, 0)
 
@@ -392,7 +201,8 @@ defmodule Workflow.RunTest do
         "t0" => %{
           "certify" => %{"status" => "passed"},
           "review" => %{"status" => "pass"},
-          "promote" => %{"status" => "promoted"}
+          "promote" => %{"status" => "promoted"},
+          "ci" => %{"event" => "ci", "verdict" => "green"}
         }
       })
     )
@@ -830,88 +640,6 @@ defmodule Workflow.RunTest do
     refute File.exists?(file)
   end
 
-  test "unchanged-tree-rechecks-once: criteria 1 to 3 - a coder's fix turn that leaves a failed check's tree unchanged has the check run once more there; a pass moves on named as a flake, a second failure waits as today",
-       %{tmp_dir: dir} do
-    manager()
-    works_dir(dir)
-    test = self()
-
-    # The coder finds nothing to change: every turn leaves the tree as it was.
-    Application.put_env(:workflow, :agents_run, fn step, _work ->
-      send(test, {:ran, step.name})
-      {%{}, nil}
-    end)
-
-    on_exit(fn -> Application.delete_env(:workflow, :agents_run) end)
-
-    told = fn told ->
-      receive do
-        {:manager_told, message} -> [message | told.(told)]
-      after
-        1_000 -> []
-      end
-    end
-
-    # Certify is red at tree t1 (its recipe failing twice); run again there, it exits `again`.
-    for {again, at} <- [{0, "passes"}, {1, "fails"}] do
-      root = Path.join(dir, at)
-      File.mkdir_p!(root)
-      work = checkout(root, 1, 1) |> Map.put("agent", %{"provider" => "claude-code"})
-      stand_in = Application.get_env(:workflow, :cmd)
-      {:ok, runs} = Agent.start_link(fn -> 0 end)
-
-      Application.put_env(:workflow, :cmd, fn
-        "just", ["certify", _run] = args, opts ->
-          stand_in.("just", args, opts)
-          n = Agent.get_and_update(runs, &{&1 + 1, &1 + 1})
-          {"1204 tests", if(n <= 2, do: 1, else: again)}
-
-        command, args, opts ->
-          stand_in.(command, args, opts)
-      end)
-
-      capture_log(fn ->
-        assert {%{name: "certify"}, "started"} = Workflow.Run.start(work)
-        settled()
-      end)
-
-      said = told.(told)
-
-      # One fix turn, then the check once more, at the same tree, instead of the same note again.
-      assert_received {:ran, "fix"}
-      refute_received {:ran, "fix"}
-
-      runs_at_t1 =
-        Path.wildcard(Path.join([root, "workflow", "analysis", "t1", "*", "meta.json"]))
-
-      assert length(runs_at_t1) == Agent.get(runs, & &1)
-
-      flaky =
-        "was flaky: `just certify` failed, then `just certify` passed at the same tree"
-
-      if again == 0 do
-        assert Agent.get(runs, & &1) == 3
-        assert_received {:ran, "review"}
-        assert Enum.any?(said, &(&1 =~ flaky))
-        # The stand-in reviewer moves nothing, so it is sent again: those turns are this phase's.
-        receive_all = fn again ->
-          receive do: ({:ran, "review"} -> again.(again)), after: (0 -> :ok)
-        end
-
-        receive_all.(receive_all)
-      else
-        # Red twice again: no more runs, and the work waits as a third send does today.
-        assert Agent.get(runs, & &1) == 4
-        refute_received {:ran, "review"}
-        refute Enum.any?(said, &(&1 =~ flaky))
-        assert %{"step" => "fix", "reason" => reason} = stopped(root)
-
-        assert reason =~
-                 "waiting on its owner: sent to the coder a third time with the same tree and note"
-      end
-    end
-  end
-
   test "a-turn-with-no-change-keeps-its-words: criteria 1 and 2 - a coder turn that changes nothing has its final text in the log and in the stop note",
        %{tmp_dir: dir} do
     works_dir(dir)
@@ -999,6 +727,12 @@ defmodule Workflow.RunTest do
       assert_received {:ran, "review"}
     end)
 
+    # The ci for the commit it landed as comes in, green, and the work goes on.
+    capture_log(fn ->
+      assert Workflow.Run.event("i1", "ci", %{"verdict" => "green"}) == :ok
+      settled()
+    end)
+
     assert Workflow.Run.step(work) == nil
     refute File.exists?(file)
     assert stopped(dir) == nil
@@ -1006,6 +740,7 @@ defmodule Workflow.RunTest do
 
   test "browser-for-pages: criterion 4 a work that ends closes its browser session once, with the work's id",
        %{tmp_dir: dir} do
+    works_dir(dir)
     work = checkout(dir, 1, 0) |> Map.put("agent", %{"provider" => "claude-code"})
     test = self()
     others = Application.get_env(:workflow, :cmd)
@@ -1028,6 +763,12 @@ defmodule Workflow.RunTest do
 
     capture_log(fn ->
       assert {%{name: "certify"}, "started"} = Workflow.Run.start(work)
+      settled()
+    end)
+
+    # The ci for the commit it landed as comes in, green.
+    capture_log(fn ->
+      assert Workflow.Run.event("i1", "ci", %{"verdict" => "green"}) == :ok
       settled()
     end)
 
@@ -1063,6 +804,7 @@ defmodule Workflow.RunTest do
         others.(command, args, opts)
     end)
 
+    ci_in(dir)
     capture_log(fn -> assert Workflow.Run.step(Map.put(work, "review", "pass")) == nil end)
     assert_received {"git", ["worktree", "remove" | _]}
     refute File.exists?(Workflow.Checkout.root(repo, "i1"))
@@ -1100,6 +842,12 @@ defmodule Workflow.RunTest do
 
     capture_log(fn ->
       assert {%{name: "certify"}, "started"} = Workflow.Run.start(work)
+      settled()
+    end)
+
+    # The ci for the commit it landed as comes in, green, and the work goes on.
+    capture_log(fn ->
+      assert Workflow.Run.event("i1", "ci", %{"verdict" => "green"}) == :ok
       settled()
     end)
 
@@ -1310,6 +1058,7 @@ defmodule Workflow.RunTest do
     assert %{name: "fix", note: "The review failed: no test"} =
              Workflow.Run.step(Map.merge(work, %{"review" => "fail", "note" => "no test"}))
 
+    ci_in(dir)
     assert Workflow.Run.step(Map.put(work, "review", "pass")) == nil
 
     assert_received {"git", ["merge", "--no-ff", "--no-edit", "c1"]}
@@ -1383,6 +1132,7 @@ defmodule Workflow.RunTest do
   test "a demo approved records it and moves the journey on to promote", %{tmp_dir: dir} do
     work = journey(dir)
 
+    ci_in(dir)
     assert Workflow.Run.step(Map.merge(work, %{"review" => "pass", "demo" => "approve"})) == nil
 
     assert_received {"git", ["merge", "--no-ff", "--no-edit", "c1"]}
@@ -1755,6 +1505,7 @@ defmodule Workflow.RunTest do
     work = checkout(dir, 1, 0, repo: repo)
     recipes({"", 0}, {"", 0})
 
+    ci_in(dir)
     assert Workflow.Run.step(Map.put(work, "review", "pass")) == nil
     assert_received {:cwd, "just", ["copy-teardown"], ^project_dir}
     ran = commands()
@@ -1886,6 +1637,7 @@ defmodule Workflow.RunTest do
 
     log =
       capture_log(fn ->
+        ci_in(dir)
         assert Workflow.Run.step(Map.put(work, "review", "pass")) == nil
       end)
 
@@ -1950,6 +1702,7 @@ defmodule Workflow.RunTest do
     refute_received {"git", ["branch", "-D" | _]}
 
     finished = checkout(dir, 1, 0, repo: repo)
+    ci_in(dir)
     assert Workflow.Run.step(Map.put(finished, "review", "pass")) == nil
 
     assert_received {"git", ["worktree", "remove", ^checkout_dir]}
@@ -1961,6 +1714,7 @@ defmodule Workflow.RunTest do
     repo = Path.join(dir, "myrepo")
     work = checkout(dir, 1, 0) |> Map.put("repo", repo)
 
+    ci_in(dir)
     assert Workflow.Run.step(Map.put(work, "review", "pass")) == nil
 
     owned = repo <> "-i1"
@@ -2035,6 +1789,12 @@ defmodule Workflow.RunTest do
       settled()
     end)
 
+    # The ci for the commit it landed as comes in, green.
+    capture_log(fn ->
+      assert Workflow.Run.event("i1", "ci", %{"verdict" => "green"}) == :ok
+      settled()
+    end)
+
     # Delivered: the manager's next turn is the notice.
     idle()
     assert_received {:manager_told, notice}
@@ -2067,6 +1827,12 @@ defmodule Workflow.RunTest do
       settled()
     end)
 
+    # The ci for the commit it landed as comes in, green.
+    capture_log(fn ->
+      assert Workflow.Run.event("i1", "ci", %{"verdict" => "green"}) == :ok
+      settled()
+    end)
+
     idle()
     assert_received {:manager_told, notice}
     assert notice =~ "issue i1: done"
@@ -2086,6 +1852,7 @@ defmodule Workflow.RunTest do
     Workflow.Checkout.record(dir, "i1", "certify", %{"status" => "passed"})
     Workflow.Checkout.record(dir, "i1", "review", %{"status" => "pass"})
     Workflow.Checkout.record(dir, "i1", "promote", %{"status" => "promoted"})
+    Workflow.Checkout.record(dir, "i1", "ci", %{"event" => "ci", "verdict" => "green"})
 
     capture_log(fn ->
       Workflow.Run.start(work)
@@ -2097,5 +1864,134 @@ defmodule Workflow.RunTest do
     assert notice =~ "issue i1: done"
     assert notice =~ "Nothing landed."
     refute notice =~ "Landed as commit"
+  end
+
+  # A work run on to its ci wait, kept in flight, its agents passing every step.
+  defp at_ci(dir) do
+    works = works_dir(dir)
+    work = checkout(dir, 1, 0) |> Map.put("agent", %{"provider" => "claude-code"})
+
+    Application.put_env(:workflow, :agents_run, fn _step, _work ->
+      {%{"status" => "pass"}, nil}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :agents_run) end)
+
+    capture_log(fn ->
+      assert {%{name: "certify"}, "started"} = Workflow.Run.start(work)
+      settled()
+    end)
+
+    assert File.exists?(Path.join(works, "i1.json"))
+    {work, Path.join(works, "i1.json")}
+  end
+
+  defp post_event(id, name, payload) do
+    Plug.Test.conn(
+      :post,
+      "/works/#{id}/events",
+      Jason.encode!(%{"name" => name, "payload" => payload})
+    )
+    |> Plug.Conn.put_req_header("content-type", "application/json")
+    |> Workflow.Router.call(Workflow.Router.init([]))
+  end
+
+  test "loop-waits-on-evidence: criterion 1 - an external step waits until its event is posted to /works/:id/events",
+       %{tmp_dir: dir} do
+    {work, file} = at_ci(dir)
+    assert %{name: "ci", actor: :external} = Workflow.Run.step(work)
+
+    capture_log(fn ->
+      assert post_event("i1", "ci", %{"verdict" => "green"}).status == 202
+      settled()
+    end)
+
+    assert Workflow.Run.step(work) == nil
+    refute File.exists?(file)
+  end
+
+  test "loop-waits-on-evidence: criterion 1 - an external step waits until its event comes on the server channel",
+       %{tmp_dir: dir} do
+    {work, file} = at_ci(dir)
+    assert %{name: "ci", actor: :external} = Workflow.Run.step(work)
+
+    event = %{"work" => "i1", "name" => "ci", "payload" => %{"verdict" => "green"}}
+
+    capture_log(fn ->
+      Workflow.Server.handle_message("loop:p1", "event", event, Slipstream.Socket.new())
+      settled()
+    end)
+
+    assert Workflow.Run.step(work) == nil
+    refute File.exists?(file)
+  end
+
+  test "loop-waits-on-evidence: criterion 2 - a journey's approve waits on the approve event, which moves it on to promote and ci",
+       %{tmp_dir: dir} do
+    work = journey(dir) |> Map.put("review", "pass")
+    in_flight(works_dir(dir), work)
+    assert %{name: "approve", actor: :owner} = Workflow.Run.step(work)
+    refute_received {"git", ["merge", "--no-ff", "--no-edit", "c1"]}
+
+    capture_log(fn ->
+      assert post_event("i1", "approve", %{}).status == 202
+      settled()
+    end)
+
+    assert_received {"git", ["merge", "--no-ff", "--no-edit", "c1"]}
+    assert %{name: "ci", actor: :external} = Workflow.Run.step(work)
+  end
+
+  test "loop-waits-on-evidence: criterion 3 - after promote the work waits at ci, and a green ci ends it, its copy and branch removed",
+       %{tmp_dir: dir} do
+    repo = Path.join(dir, "myrepo")
+    checkout_dir = Path.join(dir, "myrepo-i1")
+    work = checkout(dir, 1, 0, repo: repo) |> Map.put("review", "pass")
+    recipes({"", 0}, {"", 0})
+    in_flight(works_dir(dir), work)
+
+    assert %{name: "ci", actor: :external} = Workflow.Run.step(work)
+    refute_received {"git", ["worktree", "remove" | _]}
+    refute_received {"just", ["copy-teardown"]}
+
+    capture_log(fn ->
+      assert Workflow.Run.event("i1", "ci", %{"verdict" => "green"}) == :ok
+      settled()
+    end)
+
+    assert_received {"just", ["copy-teardown"]}
+    assert_received {"git", ["worktree", "remove", ^checkout_dir]}
+    assert_received {"git", ["branch", "-D", "issue/i1"]}
+  end
+
+  test "loop-waits-on-evidence: criterion 4 - a flaky ci ends the work and starts one issue per flaky test, naming the test and tree",
+       %{tmp_dir: dir} do
+    {work, file} = at_ci(dir)
+    test = self()
+
+    Application.put_env(:workflow, :agents_run, fn _step, w ->
+      if String.starts_with?(w["id"], "flaky-"), do: send(test, {:flaky, w})
+      {%{"status" => "pass"}, nil}
+    end)
+
+    payload = %{
+      "verdict" => "flaky",
+      "tree" => "abcdef1234567",
+      "commit" => "c1",
+      "failing" => [],
+      "flaky" => ["test/a_test.exs:12"]
+    }
+
+    capture_log(fn ->
+      assert Workflow.Run.event("i1", "ci", payload) == :ok
+      settled()
+    end)
+
+    assert_receive {:flaky, %{"id" => "flaky-a-test-exs-12-abcdef1", "text" => text}}, 2_000
+    assert text =~ "test/a_test.exs:12"
+    assert text =~ "abcdef1234567"
+    assert text =~ "failed and passed"
+    assert Workflow.Run.step(work) == nil
+    refute File.exists?(file)
   end
 end

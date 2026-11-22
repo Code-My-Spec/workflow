@@ -3,7 +3,8 @@ defmodule Workflow.Plugin do
   The plugin the loop runs with: one Claude Code plugin folder, named by
   `"plugin"` in the config file. It has `.claude-plugin/plugin.json` at its root
   and `skills/<role>/SKILL.md` under it; each agent the loop runs is given its
-  role's folder, when there is one. A plain file `guards` at its root lists the
+  role's folder, when there is one. A `.mcp.json` at its root gives each Claude
+  Code agent its MCP servers. A plain file `guards` at its root lists the
   paths a reviewer is shown changes to (see `Workflow.StaticReview`).
 
   All the loop knows of a language is in the plugin.
@@ -48,6 +49,18 @@ defmodule Workflow.Plugin do
       [folder]
     else
       _none -> []
+    end
+  end
+
+  @doc "The plugin's `.mcp.json`, the MCP servers each Claude Code agent is given; nil with none."
+  @spec mcp() :: String.t() | nil
+  def mcp do
+    with "" <> dir <- dir(),
+         path = Path.join(dir, ".mcp.json"),
+         true <- File.regular?(path) do
+      path
+    else
+      _none -> nil
     end
   end
 

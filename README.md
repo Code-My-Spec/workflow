@@ -73,39 +73,35 @@ line of `git worktree list`), on whatever branch it has checked out, even when
 `manager.repo` names a linked worktree of it. The manager is told that folder
 and branch, and names them to the person before the first work it hands in.
 
-## Recipes and the evidence folder
+## Recipes, evidence and events
 
 The loop analyses a project by running `just <recipe> <dir>` (`run`, `certify`,
-`ci`, `demo`, ...), where `<dir>` is that run's own analysis folder.
+`demo`, ...), where `<dir>` is that run's own analysis folder. The verdict is
+the recipe's exit code.
 
-The `ci` recipe may leave evidence there: a project that wants it writes
-`<dir>/evidence/<journey id>/` holding that journey's stage screenshots (`.png`).
-After `ci` exits 0, and only when `config.json` has a `"server"`, the loop sends
-each sub-folder with at least one `.png`: its `.png` files plus
-`stories/<journey id>.yml` from the ci checkout when that file exists, by
-`POST <server url>/api/loop/evidence` (the loop's bearer token; body
-`{project_id, commit, journey, files}`; answer `{folder, puts: {name: url}}`),
-then a PUT of each file to its url. It is sent before the ci checkout can be
-pruned. No folder or no `.png` sends nothing. A failure logs one warning and
-never changes ci's result.
+Each `just run` and `just certify` is given `EVIDENCE_CONTEXT` (`run/<work id>`
+or `certify/<work id>`) and one `EVIDENCE_CORRELATION` uuid. Afterwards each new
+`.code_my_spec/evidence/*.sarif` file and each file in a new
+`.code_my_spec/evidence/<guid>/` folder is sent over the server channel: the
+loop pushes `presign` `{project_id, files}`, PUTs each file to the url in the
+reply's `puts`, pushes `uploaded` `{project_id, guids}`, and deletes what it
+sent. With no server or no reply it logs one line and goes on.
 
-When `ci` fails, a project may have a `retry` recipe: the loop runs
-`just retry <dir2> <dir>` in the same ci checkout, where `<dir2>` is a new run folder
-beside the first, so both runs' evidence is kept and neither overwrites the other,
-and `<dir>` is the first run's folder (its meta.json and SARIF), which `retry` may
-read to learn what failed but must not change.
-`retry` runs only what failed (for a mix project, `mix test --failed`) and writes
-its SARIF into `<dir2>`, as `ci` does into `<dir>`. A failing retry leaves the
-tree red. A passing one is green: each test that failed in the first run's SARIF
-is a flake, named (file and test) to the manager and in the work's report to the
-server (`"flakes"`). A project with no `retry` recipe has `ci` run once more instead.
+A work's last step, `ci`, is an external step: the work waits there, holding
+only its record, until a `ci` event is recorded for it. The server pushes
+`event` `{work, name, payload}` on `loop:<project>`; locally the same is
+`POST /works/:id/events {"name", "payload"}`. A ci payload is `{verdict, tree,
+commit, failing, flaky}`: green is done, flaky is done and hands in one issue
+per flaky test, red sends the work back to its coder with the failing tests.
+A journey's `approve` waits on an event named `approve` the same way. After it
+pushes the main copy, the loop pushes `pushed` `{branch, commit}`.
 
 ## MCP endpoints
 
 - `POST /mcp` is the chat's endpoint: it offers only `say` and `inbox`, and
   refuses any other tool as unknown.
 - `POST /mcp/manager` is for whoever acts as the manager: it offers the
-  manager's own tools (`hand_in`, `record`, `decide`, `look`, `tell` and
+  manager's own tools (`hand_in`, `decide`, `look`, `tell` and
   `stop`, with the same inputs the service-run manager has) plus `say` and
   `inbox`. Their calls do what the
   service-run manager's tools do, with the `"repo"`, `"project"`, `"cap"` and

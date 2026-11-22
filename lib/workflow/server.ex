@@ -6,8 +6,12 @@ defmodule Workflow.Server do
   (`ref`, `text`); the manager is told the text exactly as `POST /manager` tells
   it (`Workflow.Manager.tell/1`) and `"said"` (the same `ref`, the reply `text`)
   goes back. The loop also pushes `"report"`, a work's whole picture
-  (`Workflow.Report`), and reads nothing back for it. Nothing else crosses: the
-  manager is spoken to, never driven.
+  (`Workflow.Report`), and reads nothing back for it.
+
+  The server pushes `"event"` (`work`, `name`, `payload`): it is recorded for
+  that work (`Workflow.Run.event/3`), as `POST /works/:id/events` records one.
+  The loop pushes `"presign"` and `"uploaded"` for evidence (`Workflow.Upload`)
+  and `"pushed"` (`branch`, `commit`) once it has pushed the main copy.
 
   Started only when `config.json` has a `"server"` object:
   `{"url": "wss://host/socket/websocket", "project_id": "..."}`, and optionally
@@ -34,6 +38,29 @@ defmodule Workflow.Server do
     {"said", %{"ref" => ref, "text" => reply}}
   end
 
+  @doc """
+  Pushes `event` and waits for the server's reply: `{:ok, payload}`, or
+  `{:error, why}` with no line, no reply in `timeout`, or a refusal.
+  """
+  @spec call(String.t(), map(), timeout()) :: {:ok, map()} | {:error, term()}
+  def call(event, payload, timeout \\ 15_000) do
+    case GenServer.whereis(__MODULE__) do
+      nil -> {:error, :no_server}
+      pid -> GenServer.call(pid, {:push, event, payload}, timeout)
+    end
+  catch
+    :exit, why -> {:error, {:no_reply, why}}
+  end
+
+  @doc "Pushes `event` with nothing waited for; nothing with no line."
+  @spec push(String.t(), map()) :: :ok
+  def push(event, payload) do
+    with pid when is_pid(pid) <- GenServer.whereis(__MODULE__),
+         do: send(pid, {:push, event, payload})
+
+    :ok
+  end
+
   # Named, so `Workflow.Report` finds the line to send a report on.
   def start_link(%{} = server), do: Slipstream.start_link(__MODULE__, server, name: __MODULE__)
 
@@ -56,13 +83,55 @@ defmodule Workflow.Server do
     {:ok, socket}
   end
 
+  def handle_message(_topic, "event", %{"work" => "" <> id, "name" => "" <> name} = event, socket) do
+    Logger.info("[Workflow.Server] event #{name} for #{id}")
+    Task.start(fn -> Workflow.Run.event(id, name, event["payload"]) end)
+    {:ok, socket}
+  end
+
   def handle_message(_topic, _event, _payload, socket), do: {:ok, socket}
+
+  # A push whose reply is waited on: the caller is answered when it comes.
+  @impl Slipstream
+  def handle_call({:push, event, payload}, from, socket) do
+    case push(socket, socket.assigns.topic, event, payload) do
+      {:ok, ref} ->
+        calls = Map.put(socket.assigns[:calls] || %{}, ref, from)
+        {:noreply, assign(socket, calls: calls, last_push: event)}
+
+      {:error, why} ->
+        {:reply, {:error, why}, socket}
+    end
+  end
+
+  @impl Slipstream
+  def handle_reply(ref, reply, socket) do
+    case Map.pop(socket.assigns[:calls] || %{}, ref) do
+      {nil, _calls} ->
+        {:ok, socket}
+
+      {from, calls} ->
+        GenServer.reply(from, reply)
+        {:ok, assign(socket, :calls, calls)}
+    end
+  end
 
   @impl Slipstream
   def handle_info({:said, {event, payload}}, socket) do
     Logger.info("[Workflow.Server] said #{payload["ref"]}")
     push(socket, socket.assigns.topic, event, payload)
     {:noreply, assign(socket, :last_push, event)}
+  end
+
+  def handle_info({:push, event, payload}, socket) do
+    case push(socket, socket.assigns.topic, event, payload) do
+      {:ok, _ref} ->
+        {:noreply, assign(socket, :last_push, event)}
+
+      {:error, why} ->
+        Logger.warning("[Workflow.Server] #{event} not sent: #{inspect(why)}")
+        {:noreply, socket}
+    end
   end
 
   # A work's whole picture (`Workflow.Report`). A send that fails is logged and

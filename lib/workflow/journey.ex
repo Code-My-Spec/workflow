@@ -4,7 +4,8 @@ defmodule Workflow.Journey do
   untested stage (`specify`), the system runs the tests (`run`), a coder
   makes them pass (`work`), the system merges and checks (`certify`), a
   reviewer passes or fails it (`review`), the system runs the project's
-  `just demo` (`demo`), the owner decides on the demo (`approve`), and the system merges it into the main copy (`promote`).
+  `just demo` (`demo`), the owner decides on the demo (`approve`), and the system merges it into the main copy (`promote`), then
+  waits on its `ci` event. Approve waits on an event named "approve" as `ci` does.
 
   Everything a journey shares with a story is in `Workflow.Parts`. The
   snapshot adds `stages` (the work's own list) and `named` (the stage
@@ -29,7 +30,8 @@ defmodule Workflow.Journey do
       %{name: "review", actor: :reviewer, agent: Parts.reviewer(@noun, @key)},
       %{name: "demo", actor: :system},
       %{name: "approve", actor: :owner},
-      %{name: "promote", actor: :system}
+      %{name: "promote", actor: :system},
+      Parts.ci_step()
     ]
   end
 
@@ -61,13 +63,16 @@ defmodule Workflow.Journey do
 
   defp rejected(said, note), do: said <> "\n\nThe owner rejected the demo: " <> note
 
+  defp walk(%{name: "ci"}, snapshot), do: Parts.ci(snapshot, "work")
+
+  # Done once an "approve" event is recorded, unless it rejects.
   defp walk(%{name: "approve"}, snapshot) do
     case Parts.found(snapshot, "approve") do
-      %{"status" => "approve"} ->
-        :done
-
       %{"status" => "reject", "note" => note} ->
         {:to, "work", %{note: note}}
+
+      %{} ->
+        :done
 
       nil ->
         if snapshot[:approved],
@@ -112,8 +117,9 @@ defmodule Workflow.Journey do
        when is_binary(main) do
     is_nil(Parts.found(snapshot, "approve")) and
       Enum.any?(results, fn
-        {tree, %{"approve" => %{"status" => "approve"}}} when tree != head ->
-          Workflow.Checkout.only_main_since?(root, tree, main)
+        {tree, %{"approve" => %{} = approve}} when tree != head ->
+          approve["status"] != "reject" and
+            Workflow.Checkout.only_main_since?(root, tree, main)
 
         _other ->
           false

@@ -2,7 +2,8 @@ defmodule Workflow.Issue do
   @moduledoc """
   An issue: a coder fixes it with a test (`fix`), the system merges the main
   copy's branch and checks the result (`certify`), a reviewer passes or fails it
-  (`review`) and the system merges it into the main copy (`promote`).
+  (`review`), the system merges it into the main copy (`promote`), and it waits
+  on its `ci` event (`ci`).
 
   Each agent's step says what kind of agent does it: its brief and its tools.
   The snapshot is `%{head, commits, results}`: the checkout's tree, how many
@@ -32,7 +33,8 @@ defmodule Workflow.Issue do
     %{name: "fix", actor: :coder, agent: @coder},
     %{name: "certify", actor: :system},
     %{name: "review", actor: :reviewer, agent: @reviewer},
-    %{name: "promote", actor: :system}
+    %{name: "promote", actor: :system},
+    %{name: "ci", actor: :external}
   ]
 
   @impl true
@@ -70,16 +72,18 @@ defmodule Workflow.Issue do
 
   def status(%{name: "promote"}, snapshot) do
     case found(snapshot, "promote") do
-      %{"status" => "promoted"} -> Workflow.Parts.landed(snapshot, "fix")
+      %{"status" => "promoted"} -> :done
       %{"status" => "refused", "note" => note} -> {:to, "fix", %{note: note}}
       %{"status" => "conflicted", "note" => note} -> {:to, "fix", %{note: note, stop: true}}
       nil -> %{}
     end
   end
 
+  def status(%{name: "ci"}, snapshot), do: Workflow.Parts.ci(snapshot, "fix")
+
   @impl true
   def perform("certify", %{"root" => root} = work, snapshot),
-    do: Workflow.Checkout.certify(root, snapshot, work["project"])
+    do: Workflow.Checkout.certify(root, snapshot, work["project"], work["id"])
 
   def perform("promote", %{"root" => root}, snapshot),
     do: Workflow.Checkout.promote(root, snapshot)

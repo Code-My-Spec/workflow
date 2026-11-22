@@ -15,9 +15,6 @@ rules:
   - rule: A workflow is a file that lists its stories in order, and every story names its workflow.
     scenarios:
       - happy: A story named for the team-invite job appears in that workflow's file after the stories it depends on.
-  - rule: The project manager is the only writer. It records a story or workflow on the customer's behalf without starting any work, and a later hand-in uses the story it recorded.
-    scenarios:
-      - happy: An interview produces ten stories and a workflow, and the project manager records them all without anything being built.
   - rule: The loop's criteria are the scenarios of a story, in order, each given as its rule followed by the scenario.
     scenarios:
       - happy: A story with three scenarios is worked as three criteria, one at a time.

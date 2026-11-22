@@ -107,7 +107,13 @@ defmodule Workflow.PackageCarriesThePluginTest do
       {said, status} =
         System.cmd(
           "just",
-          ["--justfile", Path.join(File.cwd!(), "justfile"), "--working-directory", work, "package"] ++
+          [
+            "--justfile",
+            Path.join(File.cwd!(), "justfile"),
+            "--working-directory",
+            work,
+            "package"
+          ] ++
             args,
           stderr_to_stdout: true
         )
@@ -127,7 +133,10 @@ defmodule Workflow.PackageCarriesThePluginTest do
       |> List.last()
 
     copy_plugin = :binary.match(package, "/#{@plugin}\" _build/prod/rel/workflow/plugin")
-    copy_brief = :binary.match(package, "/#{@instructions}\" _build/prod/rel/workflow/instructions.md")
+
+    copy_brief =
+      :binary.match(package, "/#{@instructions}\" _build/prod/rel/workflow/instructions.md")
+
     tar = :binary.match(package, "tar -C _build/prod/rel/workflow")
 
     assert copy_plugin != :nomatch and copy_brief != :nomatch and tar != :nomatch
@@ -154,7 +163,14 @@ defmodule Workflow.PackageCarriesThePluginTest do
     {said, status} =
       System.cmd(
         "just",
-        ["--justfile", Path.join(File.cwd!(), "justfile"), "--working-directory", work, "package", app],
+        [
+          "--justfile",
+          Path.join(File.cwd!(), "justfile"),
+          "--working-directory",
+          work,
+          "package",
+          app
+        ],
         stderr_to_stdout: true
       )
 

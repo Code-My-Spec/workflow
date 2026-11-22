@@ -91,7 +91,6 @@ defmodule Workflow.ManagerTest do
              "decide",
              "hand_in",
              "look",
-             "record",
              "stop",
              "tell"
            ]
@@ -207,7 +206,6 @@ defmodule Workflow.ManagerTest do
     brief = opts[:system_prompt] |> String.downcase() |> String.replace(~r/\s+/, " ")
 
     assert brief =~ "a failure of the loop itself"
-    assert brief =~ "a record refused because the main copy has uncommitted changes"
     assert brief =~ "a step sent back three times with the same tree and note"
 
     assert brief =~
@@ -437,336 +435,6 @@ defmodule Workflow.ManagerTest do
     assert yml =~ "- Can an owner cancel a sent invite?"
   end
 
-  test "record-stories: criterion 1 - the record tool writes stories/<id>.yml and the workflow file in the main copy's project, commits both in one commit named for the story, and starts no work",
-       %{tmp_dir: dir} do
-    repo = Path.join(dir, "repo")
-    File.mkdir_p!(Path.join(repo, "proj"))
-    File.write!(Path.join([repo, "proj", "README.md"]), "hello\n")
-
-    git = fn args ->
-      {out, 0} = System.cmd("git", args, cd: repo, stderr_to_stdout: true)
-      out
-    end
-
-    for args <- [
-          ~w(init -b main),
-          ~w(config user.email test@example.com),
-          ~w(config user.name Test),
-          ~w(add -A),
-          ~w(commit -m initial)
-        ],
-        do: git.(args)
-
-    agents = %{"qa" => %{"provider" => "claude-code"}}
-
-    configure(
-      Map.merge(@manager, %{"repo" => repo, "project" => "proj", "agents" => agents}),
-      dir
-    )
-
-    test = self()
-
-    Application.put_env(:workflow, :agents_run, fn _step, work ->
-      send(test, {:agent, self(), work})
-      receive do: (:never -> {%{}, nil})
-    end)
-
-    Application.put_env(:workflow, :manager_run, fn _message, opts ->
-      send(test, {:tools, opts[:tools]})
-      {:ok, %{text: "", messages: []}}
-    end)
-
-    on_exit(fn ->
-      Application.delete_env(:workflow, :agents_run)
-      Application.delete_env(:workflow, :manager_run)
-    end)
-
-    Workflow.Manager.tell("go")
-    assert_received {:tools, tools}
-
-    assert record = Enum.find(tools, &(&1.name == "record")), "the manager has no record tool"
-
-    story = %{
-      "id" => "s1",
-      "title" => "Invite a teammate",
-      "workflow" => "team-setup",
-      "story" => "As an account owner I want to invite a teammate.",
-      "rules" => [
-        %{
-          "rule" => "Only an owner may invite.",
-          "scenarios" => [
-            %{"happy" => "An owner invites by email and the invite is sent."},
-            %{"fails" => "A member tries to invite and is told only owners can."}
-          ]
-        }
-      ],
-      "questions" => ["Can an owner cancel a sent invite?"]
-    }
-
-    commits_before = git.(~w(rev-list --count HEAD)) |> String.trim() |> String.to_integer()
-
-    assert {:ok, _said} = record.execute.(story, %{})
-
-    yml = File.read!(Path.join([repo, "proj", "stories", "s1.yml"]))
-    assert yml =~ "title: Invite a teammate"
-    assert yml =~ "workflow: team-setup"
-    assert yml =~ "- rule: Only an owner may invite."
-    assert yml =~ "- fails: A member tries to invite and is told only owners can."
-    assert yml =~ "- Can an owner cancel a sent invite?"
-
-    assert File.read!(Path.join([repo, "proj", "workflows", "team-setup.yml"])) =~ "- s1"
-
-    # One new commit, named for the story, holding both files, leaving nothing behind.
-    assert git.(~w(rev-list --count HEAD)) |> String.trim() |> String.to_integer() ==
-             commits_before + 1
-
-    assert git.(~w(log -1 --format=%s)) =~ "s1"
-    changed = git.(~w(show --name-only --format= HEAD)) |> String.split("\n", trim: true)
-    assert Enum.sort(changed) == ["proj/stories/s1.yml", "proj/workflows/team-setup.yml"]
-    assert git.(~w(status --porcelain)) == ""
-
-    # And no work was started.
-    refute_receive {:agent, _pid, _work}, 500
-    assert Path.wildcard(Path.join(Workflow.Run.works_dir(), "*.json")) == []
-  end
-
-  test "record-stories: criterion 2 - recording an id already recorded replaces the file with the new content in a new commit, and the workflow file still names the id once",
-       %{tmp_dir: dir} do
-    repo = Path.join(dir, "repo")
-    File.mkdir_p!(Path.join(repo, "proj"))
-    File.write!(Path.join([repo, "proj", "README.md"]), "hello\n")
-
-    git = fn args ->
-      {out, 0} = System.cmd("git", args, cd: repo, stderr_to_stdout: true)
-      out
-    end
-
-    for args <- [
-          ~w(init -b main),
-          ~w(config user.email test@example.com),
-          ~w(config user.name Test),
-          ~w(add -A),
-          ~w(commit -m initial)
-        ],
-        do: git.(args)
-
-    configure(Map.merge(@manager, %{"repo" => repo, "project" => "proj"}), dir)
-
-    test = self()
-
-    Application.put_env(:workflow, :manager_run, fn _message, opts ->
-      send(test, {:tools, opts[:tools]})
-      {:ok, %{text: "", messages: []}}
-    end)
-
-    on_exit(fn -> Application.delete_env(:workflow, :manager_run) end)
-
-    Workflow.Manager.tell("go")
-    assert_received {:tools, tools}
-    assert record = Enum.find(tools, &(&1.name == "record")), "the manager has no record tool"
-
-    story = %{
-      "id" => "s1",
-      "title" => "Invite a teammate",
-      "workflow" => "team-setup",
-      "story" => "As an account owner I want to invite a teammate.",
-      "rules" => [
-        %{
-          "rule" => "Only an owner may invite.",
-          "scenarios" => [%{"happy" => "An owner invites by email and the invite is sent."}]
-        }
-      ],
-      "questions" => ["Can an owner cancel a sent invite?"]
-    }
-
-    count = fn -> git.(~w(rev-list --count HEAD)) |> String.trim() |> String.to_integer() end
-
-    assert {:ok, _said} = record.execute.(story, %{})
-    after_first = count.()
-
-    revised = %{
-      story
-      | "title" => "Invite a teammate by email",
-        "questions" => ["Can an invite expire?"]
-    }
-
-    assert {:ok, _said} = record.execute.(revised, %{})
-
-    assert count.() == after_first + 1
-
-    yml = File.read!(Path.join([repo, "proj", "stories", "s1.yml"]))
-    assert yml =~ "title: Invite a teammate by email"
-    assert yml =~ "- Can an invite expire?"
-    refute yml =~ "Can an owner cancel a sent invite?"
-
-    workflow = File.read!(Path.join([repo, "proj", "workflows", "team-setup.yml"]))
-    assert length(Regex.scan(~r/^  - s1$/m, workflow)) == 1
-    assert git.(~w(status --porcelain)) == ""
-  end
-
-  test "record-stories: criterion 3 - recording when the main copy has uncommitted changes to that story's file is refused with a message naming the file, and nothing is committed",
-       %{tmp_dir: dir} do
-    repo = Path.join(dir, "repo")
-    File.mkdir_p!(Path.join([repo, "proj", "stories"]))
-    File.write!(Path.join([repo, "proj", "stories", "s1.yml"]), "title: Kept\n")
-
-    git = fn args ->
-      {out, 0} = System.cmd("git", args, cd: repo, stderr_to_stdout: true)
-      out
-    end
-
-    for args <- [
-          ~w(init -b main),
-          ~w(config user.email test@example.com),
-          ~w(config user.name Test),
-          ~w(add -A),
-          ~w(commit -m initial)
-        ],
-        do: git.(args)
-
-    configure(Map.merge(@manager, %{"repo" => repo, "project" => "proj"}), dir)
-
-    test = self()
-
-    Application.put_env(:workflow, :manager_run, fn _message, opts ->
-      send(test, {:tools, opts[:tools]})
-      {:ok, %{text: "", messages: []}}
-    end)
-
-    on_exit(fn -> Application.delete_env(:workflow, :manager_run) end)
-
-    Workflow.Manager.tell("go")
-    assert_received {:tools, tools}
-    assert record = Enum.find(tools, &(&1.name == "record")), "the manager has no record tool"
-
-    # The person's own edit, not yet committed.
-    edited = "title: Edited by hand\n"
-    File.write!(Path.join([repo, "proj", "stories", "s1.yml"]), edited)
-
-    head = git.(~w(rev-parse HEAD))
-
-    story = %{
-      "id" => "s1",
-      "title" => "Invite a teammate",
-      "workflow" => "team-setup",
-      "story" => "As an account owner I want to invite a teammate.",
-      "rules" => [
-        %{
-          "rule" => "Only an owner may invite.",
-          "scenarios" => [%{"happy" => "An owner invites by email and the invite is sent."}]
-        }
-      ],
-      "questions" => []
-    }
-
-    assert {:ok, refused} = record.execute.(story, %{})
-    assert refused =~ "proj/stories/s1.yml"
-    assert refused =~ ~r/refused/i
-
-    # Nothing committed, nothing written over, no workflow file made.
-    assert git.(~w(rev-parse HEAD)) == head
-    assert File.read!(Path.join([repo, "proj", "stories", "s1.yml"])) == edited
-    refute File.exists?(Path.join([repo, "proj", "workflows", "team-setup.yml"]))
-  end
-
-  # A main copy with the manager's record tool, for the record-survives tests.
-  defp record_tool(dir) do
-    repo = Path.join(dir, "repo")
-    File.mkdir_p!(Path.join(repo, "proj"))
-    File.write!(Path.join([repo, "proj", "README.md"]), "hello\n")
-
-    git = fn args ->
-      {out, 0} = System.cmd("git", args, cd: repo, stderr_to_stdout: true)
-      out
-    end
-
-    for args <- [
-          ~w(init -b main),
-          ~w(config user.email test@example.com),
-          ~w(config user.name Test),
-          ~w(add -A),
-          ~w(commit -m initial)
-        ],
-        do: git.(args)
-
-    configure(Map.merge(@manager, %{"repo" => repo, "project" => "proj"}), dir)
-
-    test = self()
-
-    Application.put_env(:workflow, :manager_run, fn _message, opts ->
-      send(test, {:tools, opts[:tools]})
-      {:ok, %{text: "", messages: []}}
-    end)
-
-    on_exit(fn -> Application.delete_env(:workflow, :manager_run) end)
-
-    Workflow.Manager.tell("go")
-    assert_received {:tools, tools}
-    assert record = Enum.find(tools, &(&1.name == "record")), "the manager has no record tool"
-
-    story = %{
-      "id" => "s1",
-      "title" => "Invite a teammate",
-      "workflow" => "team-setup",
-      "story" => "As an account owner I want to invite a teammate.",
-      "rules" => [
-        %{
-          "rule" => "Only an owner may invite.",
-          "scenarios" => [%{"happy" => "An owner invites by email and the invite is sent."}]
-        }
-      ],
-      "questions" => []
-    }
-
-    {repo, git, record, story}
-  end
-
-  test "record-survives: criterion 1 - recording commits only the files it wrote, whatever else is uncommitted in the main copy",
-       %{tmp_dir: dir} do
-    {repo, git, record, story} = record_tool(dir)
-
-    # A person's unrelated work: one file edited, one staged.
-    File.write!(Path.join([repo, "proj", "README.md"]), "edited\n")
-    File.write!(Path.join([repo, "proj", "notes.md"]), "notes\n")
-    git.(["add", "proj/notes.md"])
-
-    assert {:ok, said} = record.execute.(story, %{})
-    assert said =~ "recorded in"
-
-    changed = git.(~w(show --name-only --format= HEAD)) |> String.split("\n", trim: true)
-    assert Enum.sort(changed) == ["proj/stories/s1.yml", "proj/workflows/team-setup.yml"]
-
-    # The person's work is left as it was.
-    assert git.(~w(status --porcelain)) |> String.split("\n", trim: true) |> Enum.sort() ==
-             [" M proj/README.md", "A  proj/notes.md"]
-  end
-
-  test "record-survives: criterion 2 - a retry over a file left behind by an earlier failed record succeeds",
-       %{tmp_dir: dir} do
-    {repo, git, record, story} = record_tool(dir)
-
-    # The first record's commit fails, leaving its files written and uncommitted.
-    hook = Path.join([repo, ".git", "hooks", "pre-commit"])
-    File.mkdir_p!(Path.dirname(hook))
-    File.write!(hook, "#!/bin/sh\nexit 1\n")
-    File.chmod!(hook, 0o755)
-
-    assert {:ok, failed} = record.execute.(story, %{})
-    assert failed =~ "not recorded"
-    assert git.(["status", "--porcelain", "--", "proj/stories/s1.yml"]) != ""
-
-    File.rm!(hook)
-    head = git.(~w(rev-parse HEAD))
-
-    assert {:ok, said} = record.execute.(story, %{})
-    assert said =~ "recorded in"
-    refute git.(~w(rev-parse HEAD)) == head
-
-    changed = git.(~w(show --name-only --format= HEAD)) |> String.split("\n", trim: true)
-    assert Enum.sort(changed) == ["proj/stories/s1.yml", "proj/workflows/team-setup.yml"]
-    assert git.(~w(status --porcelain)) == ""
-  end
-
   test "record-stories: criterion 4 - hand_in with a kind of story and only the id of a recorded story starts the work with the text and scenarios read from stories/<id>.yml, and the work makes no second story commit when the file is unchanged",
        %{tmp_dir: dir} do
     repo = Path.join(dir, "repo")
@@ -815,7 +483,6 @@ defmodule Workflow.ManagerTest do
 
     Workflow.Manager.tell("go")
     assert_received {:tools, tools}
-    record = Enum.find(tools, &(&1.name == "record"))
     hand_in = Enum.find(tools, &(&1.name == "hand_in"))
 
     rules = [
@@ -837,8 +504,17 @@ defmodule Workflow.ManagerTest do
       "questions" => []
     }
 
-    assert record, "the manager has no record tool"
-    assert {:ok, _said} = record.execute.(story, %{})
+    # The story already in the main copy, as a person or another tool wrote it.
+    file =
+      Path.join(
+        repo,
+        Workflow.StoryFile.path(Map.merge(story, %{"kind" => "story", "project" => "proj"}))
+      )
+
+    File.mkdir_p!(Path.dirname(file))
+    File.write!(file, Workflow.StoryFile.yaml(Map.put(story, "kind", "story")))
+    git.(repo, ~w(add -A))
+    git.(repo, ["commit", "-m", "story s1: Invite a teammate"])
 
     # Handed in by its id alone.
     assert {:ok, _said} = hand_in.execute.(%{"kind" => "story", "id" => "s1"}, %{})
@@ -848,7 +524,7 @@ defmodule Workflow.ManagerTest do
     assert work["rules"] == rules
     assert work["criteria"] |> List.wrap() |> length() == 2
 
-    # The work's checkout holds the one story commit, the recording's.
+    # The work's checkout holds the one story commit, the main copy's.
     story_commits =
       git.(repo <> "-s1", ~w(log --format=%s))
       |> String.split("\n", trim: true)
@@ -996,7 +672,7 @@ defmodule Workflow.ManagerTest do
       |> String.split("\n", trim: true)
       |> Enum.sort()
 
-    assert changed == ["proj/stories/s1.yml", "proj/workflows/team-setup.yml"]
+    assert changed == ["proj/stories/s1.yml"]
 
     yml = git.(checkout, ["show", "#{first}:proj/stories/s1.yml"])
     assert yml =~ "title: Invite a teammate"
@@ -1445,7 +1121,14 @@ defmodule Workflow.ManagerTest do
 
     File.write!(
       Path.join([dir, "workflow", "j1.json"]),
-      Jason.encode!(%{"work" => kept, "t1" => %{"review" => %{"status" => "pass"}}})
+      Jason.encode!(%{
+        "work" => kept,
+        # Its ci already in, so the journey lands done once it is promoted.
+        "t1" => %{
+          "review" => %{"status" => "pass"},
+          "ci" => %{"event" => "ci", "verdict" => "green"}
+        }
+      })
     )
 
     # The manager's tools, as the run is given them.
@@ -1600,215 +1283,6 @@ defmodule Workflow.ManagerTest do
     send(http_pid, :go)
     assert %{status: 200, resp_body: body} = Task.await(http)
     assert Jason.decode!(body) == %{"said" => "noted"}
-  end
-
-  test "record-personas: criterion 1 - the record tool given personas writes personas.yml in the main copy's project as a list in field order and commits it, starting no work",
-       %{tmp_dir: dir} do
-    repo = Path.join(dir, "repo")
-    File.mkdir_p!(Path.join(repo, "proj"))
-    File.write!(Path.join([repo, "proj", "README.md"]), "hello\n")
-
-    git = fn args ->
-      {out, 0} = System.cmd("git", args, cd: repo, stderr_to_stdout: true)
-      out
-    end
-
-    for args <- [
-          ~w(init -b main),
-          ~w(config user.email test@example.com),
-          ~w(config user.name Test),
-          ~w(add -A),
-          ~w(commit -m initial)
-        ],
-        do: git.(args)
-
-    agents = %{"qa" => %{"provider" => "claude-code"}}
-
-    configure(
-      Map.merge(@manager, %{"repo" => repo, "project" => "proj", "agents" => agents}),
-      dir
-    )
-
-    test = self()
-
-    Application.put_env(:workflow, :agents_run, fn _step, work ->
-      send(test, {:agent, self(), work})
-      receive do: (:never -> {%{}, nil})
-    end)
-
-    Application.put_env(:workflow, :manager_run, fn _message, opts ->
-      send(test, {:tools, opts[:tools]})
-      {:ok, %{text: "", messages: []}}
-    end)
-
-    on_exit(fn ->
-      Application.delete_env(:workflow, :agents_run)
-      Application.delete_env(:workflow, :manager_run)
-    end)
-
-    Workflow.Manager.tell("go")
-    assert_received {:tools, tools}
-
-    assert record = Enum.find(tools, &(&1.name == "record")), "the manager has no record tool"
-
-    personas = [
-      %{
-        "name" => "Ana",
-        "guess" => "Probably a founder",
-        "pays" => "Monthly plan",
-        "refuses" => "Long forms",
-        "uses" => "Phone",
-        "today" => "Keeps notes in a spreadsheet",
-        "wants" => "To see her people in one place",
-        "main" => "The owner of the shop"
-      },
-      %{"name" => "Bo", "wants" => "Fewer emails"}
-    ]
-
-    commits_before = git.(~w(rev-list --count HEAD)) |> String.trim() |> String.to_integer()
-
-    assert {:ok, _said} = record.execute.(%{"personas" => personas}, %{})
-
-    yml = File.read!(Path.join([repo, "proj", "personas.yml"]))
-
-    positions =
-      for key <- ~w(name main wants today uses refuses pays guess) do
-        assert {pos, _len} = :binary.match(yml, "#{key}:"), "personas.yml has no #{key}:"
-        pos
-      end
-
-    assert positions == Enum.sort(positions)
-    assert yml =~ "Ana"
-    assert yml =~ "Probably a founder"
-
-    {ana, _} = :binary.match(yml, "Ana")
-    {bo, _} = :binary.match(yml, "Bo")
-    assert ana < bo
-    assert yml =~ "Fewer emails"
-
-    assert git.(~w(rev-list --count HEAD)) |> String.trim() |> String.to_integer() ==
-             commits_before + 1
-
-    changed = git.(~w(show --name-only --format= HEAD)) |> String.split("\n", trim: true)
-    assert changed == ["proj/personas.yml"]
-    assert git.(~w(status --porcelain)) == ""
-
-    refute_receive {:agent, _pid, _work}, 500
-    assert Path.wildcard(Path.join(Workflow.Run.works_dir(), "*.json")) == []
-  end
-
-  # A main copy with a project, the manager on it, and its record tool.
-  defp personas_record(dir) do
-    repo = Path.join(dir, "repo")
-    File.mkdir_p!(Path.join(repo, "proj"))
-    File.write!(Path.join([repo, "proj", "README.md"]), "hello\n")
-
-    git = fn args ->
-      {out, 0} = System.cmd("git", args, cd: repo, stderr_to_stdout: true)
-      out
-    end
-
-    for args <- [
-          ~w(init -b main),
-          ~w(config user.email test@example.com),
-          ~w(config user.name Test),
-          ~w(add -A),
-          ~w(commit -m initial)
-        ],
-        do: git.(args)
-
-    configure(Map.merge(@manager, %{"repo" => repo, "project" => "proj"}), dir)
-    test = self()
-
-    Application.put_env(:workflow, :manager_run, fn _message, opts ->
-      send(test, {:tools, opts[:tools]})
-      {:ok, %{text: "", messages: []}}
-    end)
-
-    on_exit(fn -> Application.delete_env(:workflow, :manager_run) end)
-
-    Workflow.Manager.tell("go")
-    assert_received {:tools, tools}
-    record = Enum.find(tools, &(&1.name == "record"))
-    count = fn -> git.(~w(rev-list --count HEAD)) |> String.trim() |> String.to_integer() end
-    {repo, git, record, count}
-  end
-
-  test "record-personas: criterion 2 - recording personas again replaces personas.yml in a new commit",
-       %{tmp_dir: dir} do
-    {repo, _git, record, count} = personas_record(dir)
-
-    assert {:ok, _} = record.execute.(%{"personas" => [%{"name" => "Ana"}]}, %{})
-    before = count.()
-
-    assert {:ok, _} =
-             record.execute.(%{"personas" => [%{"name" => "Cy", "wants" => "Speed"}]}, %{})
-
-    assert count.() == before + 1
-    yml = File.read!(Path.join([repo, "proj", "personas.yml"]))
-    assert yml =~ "Cy"
-    refute yml =~ "Ana"
-  end
-
-  test "record-personas: criterion 3 - a persona with no name is refused with a message saying so, nothing committed",
-       %{tmp_dir: dir} do
-    {repo, git, record, count} = personas_record(dir)
-    before = count.()
-
-    assert {:ok, said} =
-             record.execute.(
-               %{"personas" => [%{"name" => "Ana"}, %{"wants" => "Speed"}]},
-               %{}
-             )
-
-    assert said =~ "name"
-    assert count.() == before
-    refute File.exists?(Path.join([repo, "proj", "personas.yml"]))
-    assert git.(~w(status --porcelain)) == ""
-  end
-
-  test "record-personas: criterion 4 - research text gets personas/<name>.md in the same commit; none, no file",
-       %{tmp_dir: dir} do
-    {repo, git, record, count} = personas_record(dir)
-    before = count.()
-
-    personas = [
-      %{"name" => "Ana", "research" => "Interviewed twice.\n"},
-      %{"name" => "Bo"}
-    ]
-
-    assert {:ok, _} = record.execute.(%{"personas" => personas}, %{})
-    assert count.() == before + 1
-
-    assert File.read!(Path.join([repo, "proj", "personas", "Ana.md"])) ==
-             "Interviewed twice.\n"
-
-    refute File.exists?(Path.join([repo, "proj", "personas", "Bo.md"]))
-
-    changed = git.(~w(show --name-only --format= HEAD)) |> String.split("\n", trim: true)
-    assert Enum.sort(changed) == ["proj/personas.yml", "proj/personas/Ana.md"]
-  end
-
-  test "record-personas: criterion 5 - a persona recorded without research text gets no personas/<name>.md file" do
-    dir =
-      System.tmp_dir!() |> Path.join("record-personas-c5-#{System.unique_integer([:positive])}")
-
-    File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
-
-    {repo, git, record, count} = personas_record(dir)
-    before = count.()
-
-    personas = [%{"name" => "Bo", "wants" => "Fewer emails"}, %{"name" => "Cy", "research" => ""}]
-
-    assert {:ok, _} = record.execute.(%{"personas" => personas}, %{})
-    assert count.() == before + 1
-
-    refute File.exists?(Path.join([repo, "proj", "personas", "Bo.md"]))
-    refute File.exists?(Path.join([repo, "proj", "personas", "Cy.md"]))
-
-    changed = git.(~w(show --name-only --format= HEAD)) |> String.split("\n", trim: true)
-    assert changed == ["proj/personas.yml"]
   end
 
   # A main copy on `main`, and the manager's look tool for works cut from it.

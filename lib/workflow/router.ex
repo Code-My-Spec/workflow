@@ -21,6 +21,12 @@ defmodule Workflow.Router do
 
   Where the work is, as JSON, with nothing run. Either answer carries
   `"stopped"` (its step, reason and time) when the loop gave up on the work.
+
+      POST /works/demo-1/events
+      {"name": "ci", "payload": {"verdict": "green"}}
+
+  Records an event for the work, as the server's `event` push does, and runs it
+  on from where it waits (`Workflow.Run.event/3`).
   """
   use Plug.Router
 
@@ -76,6 +82,19 @@ defmodule Workflow.Router do
     end
   end
 
+  # An event for a work waiting on one: {"name": "ci", "payload": {...}}.
+  post "/works/:id/events" do
+    with :ok <- plain(id),
+         %{"name" => "" <> name} = asked <- conn.body_params,
+         :ok <- Workflow.Run.event(id, name, asked["payload"]) do
+      reply(conn, 202, %{recorded: name})
+    else
+      {:refused, why} -> reply(conn, 422, %{error: why})
+      :none -> reply(conn, 404, %{error: "that work has no copy"})
+      _other -> reply(conn, 422, %{error: "name the event: {\"name\": ..., \"payload\": {...}}"})
+    end
+  end
+
   # Says something to a work under way: {"id": ..., "root" or "repo": ..., "say": "..."}.
   # It is kept with the work and reaches its next agent turn, whichever agent,
   # as from the owner; it does not interrupt a turn already running.
@@ -121,7 +140,7 @@ defmodule Workflow.Router do
   # The manager over MCP's streamable HTTP, for chat sessions: JSON-RPC, by hand.
   post("/mcp", do: mcp(conn, [], "chat"))
 
-  # The manager's own tools (hand_in, record, decide, look, tell, stop) as well, for one acting as
+  # The manager's own tools (hand_in, decide, look, tell, stop) as well, for one acting as
   # the manager, with the manager settings from config.json; 404 with none.
   post "/mcp/manager" do
     case Workflow.Manager.configured() do
@@ -133,7 +152,7 @@ defmodule Workflow.Router do
   match _ do
     reply(conn, 404, %{
       error:
-        "POST /work/run, GET /works/:id, POST /work/say, POST /manager, POST /mcp, " <>
+        "POST /work/run, GET /works/:id, POST /works/:id/events, POST /work/say, POST /manager, POST /mcp, " <>
           "POST /mcp/manager"
     })
   end
