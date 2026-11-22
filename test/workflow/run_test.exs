@@ -2,6 +2,7 @@ defmodule Workflow.RunTest do
   # Not async: the command a checkout runs is swapped for the whole application.
   use ExUnit.Case
   import ExUnit.CaptureLog
+  import Workflow.Settled
 
   @moduletag :tmp_dir
 
@@ -871,9 +872,9 @@ defmodule Workflow.RunTest do
     log =
       capture_log(fn ->
         assert {%{name: "fix", actor: :coder}, "started"} = Workflow.Run.start(work)
-        assert_receive {:ran, "fix"}
-        assert_receive {:ran, "fix"}
         settled()
+        assert_received {:ran, "fix"}
+        assert_received {:ran, "fix"}
         refute_received {:ran, "fix"}
       end)
 
@@ -898,10 +899,10 @@ defmodule Workflow.RunTest do
     log =
       capture_log(fn ->
         assert {%{name: "fix", actor: :coder}, "started"} = Workflow.Run.start(work)
-        assert_receive {:ran, "fix", 1}
-        assert_receive {:ran, "fix", 2}
         # Run on after that, told again, since its turns move nothing; never parked.
         settled()
+        assert_received {:ran, "fix", 1}
+        assert_received {:ran, "fix", 2}
       end)
 
     refute log =~ "parked"
@@ -939,9 +940,10 @@ defmodule Workflow.RunTest do
     {second, _log} =
       with_log(fn ->
         assert {%{name: "fix", actor: :coder}, "started"} = Workflow.Run.start(work)
-        assert_receive {:ran, _first}
-        assert_receive {:ran, second}, 500
+        # Waited on the run ending, not on a clock: its turns start in the background.
         settled()
+        assert_received {:ran, _first}
+        assert_received {:ran, second}
         second
       end)
 
@@ -1268,33 +1270,6 @@ defmodule Workflow.RunTest do
     Application.put_env(:workflow, :works_dir, works_dir)
     on_exit(fn -> Application.put_env(:workflow, :works_dir, was) end)
     works_dir
-  end
-
-  # Waits until every process a call in this test left running in the background
-  # (a work's turns, their watcher, a resume) has gone down. Each says who started
-  # it in `$callers`; one linked to the test lives as long as the test, so is not waited on.
-  defp settled do
-    {:links, links} = Process.info(self(), :links)
-
-    case Enum.filter(Process.list(), &(&1 not in links and called_by_test?(&1))) do
-      [] ->
-        :ok
-
-      pids ->
-        for pid <- pids do
-          ref = Process.monitor(pid)
-          receive do: ({:DOWN, ^ref, :process, _, _} -> :ok)
-        end
-
-        settled()
-    end
-  end
-
-  defp called_by_test?(pid) do
-    case Process.info(pid, :dictionary) do
-      {:dictionary, dictionary} -> self() in Keyword.get(dictionary, :"$callers", [])
-      nil -> false
-    end
   end
 
   defp in_flight(works_dir, work) do
@@ -1628,8 +1603,8 @@ defmodule Workflow.RunTest do
 
     capture_log(fn ->
       assert {%{name: "certify"}, "started"} = Workflow.Run.start(work)
-      assert_receive {:ran, "review"}, 2_000
       settled()
+      assert_received {:ran, "review"}
     end)
 
     assert Workflow.Run.step(work) == nil
@@ -1756,8 +1731,8 @@ defmodule Workflow.RunTest do
 
     capture_log(fn ->
       assert {%{name: "run"}, "started"} = Workflow.Run.start(work)
-      assert_receive {:ran, "review"}, 2_000
       settled()
+      assert_received {:ran, "review"}
     end)
 
     assert %{actor: :owner} = Workflow.Run.step(work)
@@ -1804,8 +1779,8 @@ defmodule Workflow.RunTest do
 
     capture_log(fn ->
       assert Workflow.Run.resume() == :ok
-      assert_receive {:ran, "fix"}, 500
       settled()
+      assert_received {:ran, "fix"}
     end)
 
     # It ran again, errored twice, and was stopped: nothing left to resume.
@@ -2474,7 +2449,6 @@ defmodule Workflow.RunTest do
         send(turn, :finish)
         assert_receive {:DOWN, ^ref, :process, _pid, _reason}, 5_000
         settled()
-        Process.sleep(50)
       end)
 
     assert_received {:removed, ["worktree", "remove", "--force", ^checkout_dir], false}
