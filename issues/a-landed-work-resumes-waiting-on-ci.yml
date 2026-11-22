@@ -1,0 +1,24 @@
+id: "a-landed-work-resumes-waiting-on-ci"
+kind: "issue"
+title: A landed work waiting on ci goes back to certify after a restart
+text: |-
+  Fault (seen live on the carve loop, running code at c164fcc, v3.0.8): two issue works had LANDED. Their promote was done, they were merged into the main copy and pushed, and they were waiting on their external `ci` step. The owner restarted the service. On boot both went back to `certify` (the log shows "[Workflow <id>] certify" for each at 15:20:57), and certify ran again in their copies. One then went to `fix`, where its coder said "The fix was already on this branch, so I made no new commit". Since then neither logs anything: they sit, no longer waiting on ci and not done.
+
+  Expected: a work whose branch is already merged into the main copy resumes at its ci step, waiting for the event, exactly as before the restart. It never re-runs certify, fix, review or promote.
+
+  Wanted, as the smallest change that fixes it, with no new options:
+  1. Find why the status after promote is lost on boot, and name the cause in the decision note (for example: the boot path re-runs certify at the tree, as owned!/2 did, before checking whether the work has landed; or the promote result or the ci wait is not kept durably).
+  2. The ci step's position must come from durable facts: the work's commits are merged into main means landed (use the same rule landed?/commits_merged? already uses); the ci event is recorded or not (in the results file, as external steps record events).
+  3. On boot, a landed work with no ci event waits at ci and runs nothing. A landed work whose ci event is recorded acts on that verdict as the ci step already does. A work that has not landed resumes as today.
+
+  Confirm the defect in the code first. Grep every caller of what you change.
+
+  Check: one test in a temporary git repo with a fake agent and fake channel (no network, never the real ~/.workflow or .git/workflow). A work lands (promote done, merged into main), waits at ci, then the service is restarted. The test shows it resumes waiting at ci, that no certify, fix, review or promote runs and no agent turn starts, and that a ci event afterwards still finishes it. The test must fail without the fix. Don't weaken or delete any existing test.
+
+  Also, in the decision note: say exactly how a person puts the two stuck works on the carve loop (evidence-puts-are-signed-without-a-type and the-loop-installs-as-codemyspec) back on their ci wait after this fix ships, without re-landing anything. For example: whether restarting on the new code is enough given their commits are merged, or what must be cleared in their record or copy first (one of them was sent to fix with no new commit). Do not touch the carve loop yourself.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "After a restart, a work whose commits are already merged into the main copy and that has no ci event recorded resumes waiting at its ci step, and runs no certify, fix, review or promote"
+  - "After a restart, a landed work whose ci event is already recorded is handled by that event's verdict (green or flaky: done; red: back to fix), and is not re-landed"
+  - "A work whose commits are not yet merged into the main copy resumes at the step it was on, as today"
