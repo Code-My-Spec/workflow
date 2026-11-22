@@ -4,7 +4,7 @@
 
 On an Apple silicon Mac:
 
-    brew install codemyspec-loop      # from the tap that holds the formula
+    brew install codemyspec           # from the tap that holds the formula
     workflow init --repo /path/to/repo
     workflow sign-in                  # only when init was given a server
 
@@ -27,7 +27,7 @@ and run `claude` once to sign in:
 
 Then start the service:
 
-    brew services start codemyspec-loop
+    brew services start codemyspec
 
 How the package is built: `packaging/README.md`.
 

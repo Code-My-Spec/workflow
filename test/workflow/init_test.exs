@@ -125,7 +125,7 @@ defmodule Workflow.InitTest do
     assert said =~ config
     assert said =~ repo
     refute said =~ "workflow sign-in"
-    assert said =~ "brew services start codemyspec-loop"
+    assert said =~ "brew services start codemyspec"
 
     File.rm!(config)
 
@@ -144,7 +144,7 @@ defmodule Workflow.InitTest do
 
     assert said =~ "wss://loop.example/socket/websocket"
     sign_in = :binary.match(said, "workflow sign-in")
-    start = :binary.match(said, "brew services start codemyspec-loop")
+    start = :binary.match(said, "brew services start codemyspec")
     assert sign_in != :nomatch and start != :nomatch and sign_in < start
   end
 
@@ -162,7 +162,7 @@ defmodule Workflow.InitTest do
             "brew install",
             "workflow init",
             "workflow sign-in",
-            "brew services start codemyspec-loop"
+            "brew services start codemyspec"
           ] do
         assert {at, _} = :binary.match(install, step), "#{step} is not in the install section"
         at
