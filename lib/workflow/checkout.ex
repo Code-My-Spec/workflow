@@ -681,31 +681,45 @@ defmodule Workflow.Checkout do
     case run_recipe(root, dir, dir_analysis, again, [], recipe, nil) do
       %{"status" => "passed"} = second ->
         if again != args, do: Sarif.merge_meta(second["dir"], %{"ran" => "retry"})
-
-        flakes =
-          Enum.uniq(
-            for f <- Sarif.failures(first["dir"]),
-                do: %{"file" => f["file"], "test" => f["text"] |> to_string() |> first_line()}
-          )
-
-        named = Enum.map_join(flakes, "", &"\n- #{&1["file"] || "(no file)"}: #{&1["test"]}")
-
-        note =
-          "The tree #{Path.basename(dir_analysis)} was flaky: `just #{recipe}` failed, " <>
-            "then `just #{Enum.join(again, " ")}` passed at the same tree." <>
-            if(flakes == [], do: "", else: " Flaky tests:#{named}") <>
-            "\n\nThe first run's failures:\n\n#{first["note"]}\n\n" <>
-            "Both runs are kept, in #{first["dir"]} and #{second["dir"]}. " <>
-            "Hand in an issue for this flaky failure."
-
-        if Workflow.Manager.configured(),
-          do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", note) end)
-
-        Map.put(second, "flakes", flakes)
+        flaky(dir_analysis, recipe, again, first, second)
 
       second ->
         second
     end
+  end
+
+  @doc """
+  A recipe's run that failed (`first`), then passed when run again at the same
+  tree (`second`): the manager is told once that the tree was flaky, as a ci
+  retry that passes tells it. Answers `second` with its "flakes".
+  """
+  @spec flaky(map(), map()) :: map()
+  def flaky(%{"dir" => dir} = first, second) do
+    recipe = Sarif.meta(dir)["recipe"]
+    flaky(Path.dirname(dir), recipe, String.split(recipe), first, second)
+  end
+
+  defp flaky(dir_analysis, recipe, again, first, second) do
+    flakes =
+      Enum.uniq(
+        for f <- Sarif.failures(first["dir"]),
+            do: %{"file" => f["file"], "test" => f["text"] |> to_string() |> first_line()}
+      )
+
+    named = Enum.map_join(flakes, "", &"\n- #{&1["file"] || "(no file)"}: #{&1["test"]}")
+
+    note =
+      "The tree #{Path.basename(dir_analysis)} was flaky: `just #{recipe}` failed, " <>
+        "then `just #{Enum.join(again, " ")}` passed at the same tree." <>
+        if(flakes == [], do: "", else: " Flaky tests:#{named}") <>
+        "\n\nThe first run's failures:\n\n#{first["note"]}\n\n" <>
+        "Both runs are kept, in #{first["dir"]} and #{second["dir"]}. " <>
+        "Hand in an issue for this flaky failure."
+
+    if Workflow.Manager.configured(),
+      do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", note) end)
+
+    Map.put(second, "flakes", flakes)
   end
 
   defp recipe?(root, dir, name),

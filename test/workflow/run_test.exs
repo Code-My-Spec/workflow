@@ -1372,6 +1372,88 @@ defmodule Workflow.RunTest do
     refute File.exists?(file)
   end
 
+  test "unchanged-tree-rechecks-once: criteria 1 to 3 - a coder's fix turn that leaves a failed check's tree unchanged has the check run once more there; a pass moves on named as a flake, a second failure waits as today",
+       %{tmp_dir: dir} do
+    manager()
+    works_dir(dir)
+    test = self()
+
+    # The coder finds nothing to change: every turn leaves the tree as it was.
+    Application.put_env(:workflow, :agents_run, fn step, _work ->
+      send(test, {:ran, step.name})
+      {%{}, nil}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :agents_run) end)
+
+    told = fn told ->
+      receive do
+        {:manager_told, message} -> [message | told.(told)]
+      after
+        1_000 -> []
+      end
+    end
+
+    # Certify is red at tree t1 (its recipe failing twice); run again there, it exits `again`.
+    for {again, at} <- [{0, "passes"}, {1, "fails"}] do
+      root = Path.join(dir, at)
+      File.mkdir_p!(root)
+      work = checkout(root, 1, 1) |> Map.put("agent", %{"provider" => "claude-code"})
+      stand_in = Application.get_env(:workflow, :cmd)
+      {:ok, runs} = Agent.start_link(fn -> 0 end)
+
+      Application.put_env(:workflow, :cmd, fn
+        "just", ["certify", _run] = args, opts ->
+          stand_in.("just", args, opts)
+          n = Agent.get_and_update(runs, &{&1 + 1, &1 + 1})
+          {"1204 tests", if(n <= 2, do: 1, else: again)}
+
+        command, args, opts ->
+          stand_in.(command, args, opts)
+      end)
+
+      capture_log(fn ->
+        assert {%{name: "certify"}, "started"} = Workflow.Run.start(work)
+        settled()
+      end)
+
+      said = told.(told)
+
+      # One fix turn, then the check once more, at the same tree, instead of the same note again.
+      assert_received {:ran, "fix"}
+      refute_received {:ran, "fix"}
+
+      runs_at_t1 =
+        Path.wildcard(Path.join([root, "workflow", "analysis", "t1", "*", "meta.json"]))
+
+      assert length(runs_at_t1) == Agent.get(runs, & &1)
+
+      flaky =
+        "was flaky: `just certify` failed, then `just certify` passed at the same tree"
+
+      if again == 0 do
+        assert Agent.get(runs, & &1) == 3
+        assert_received {:ran, "review"}
+        assert Enum.any?(said, &(&1 =~ flaky))
+        # The stand-in reviewer moves nothing, so it is sent again: those turns are this phase's.
+        receive_all = fn again ->
+          receive do: ({:ran, "review"} -> again.(again)), after: (0 -> :ok)
+        end
+
+        receive_all.(receive_all)
+      else
+        # Red twice again: no more runs, and the work waits as a third send does today.
+        assert Agent.get(runs, & &1) == 4
+        refute_received {:ran, "review"}
+        refute Enum.any?(said, &(&1 =~ flaky))
+        assert %{"step" => "fix", "reason" => reason} = stopped(root)
+
+        assert reason =~
+                 "waiting on its owner: sent to the coder a third time with the same tree and note"
+      end
+    end
+  end
+
   test "a-turn-with-no-change-keeps-its-words: criteria 1 and 2 - a coder turn that changes nothing has its final text in the log and in the stop note",
        %{tmp_dir: dir} do
     works_dir(dir)

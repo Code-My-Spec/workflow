@@ -658,7 +658,16 @@ defmodule Workflow.Run do
     say(work, "#{step.name} turn by the #{step.actor} ended: #{Enum.join(said, ": ")}")
     work = Map.drop(work, ["review", "demo", "note"])
 
-    case uncommitted(step, root, id) || step(work) do
+    case uncommitted(step, root, id) || recheck(step, work, elem(seen, 2)) || step(work) do
+      # The check run again at the unchanged tree failed again: it waits, as a third send would.
+      :red ->
+        wait(
+          work,
+          step,
+          "sent to the #{step.actor} a third time with the same tree and note" <>
+            told(elem(sent, 2))
+        )
+
       # An agent's step again: an agent that moved nothing is told so, not left
       # sitting on it; the handoffs bound how often.
       %{agent: _} = next when handoffs > 0 ->
@@ -673,6 +682,35 @@ defmodule Workflow.Run do
         Logger.info("[Workflow #{id}] left on #{(is_map(left) && left.name) || "done"}")
     end
   end
+
+  # Seen live: certify failed on a flaky spex run, the coder ran it green and had
+  # nothing to change, and the same tree and note went back until the work waited.
+  # A coder's turn that leaves a tree whose check failed unchanged has that check
+  # run once more there. Passed, the tree was flaky: the manager is told, as a ci
+  # retry tells it, and the work moves on. Failed again, it is `:red`.
+  defp recheck(%{actor: :coder}, %{"id" => id, "root" => root} = work, tree) do
+    with %{head: ^tree, results: %{^tree => %{} = at}} <- Checkout.snapshot(root, id),
+         {name, first} <- Enum.find(at, &failed_run?/1) do
+      say(work, "#{name} run again at the unchanged tree #{tree}")
+      Checkout.afresh(root, id)
+      next = step(work)
+
+      with %{head: head, results: results} <- Checkout.snapshot(root, id),
+           %{"status" => "passed"} = second <- get_in(results, [head, name]) do
+        Checkout.flaky(first, second)
+        next
+      else
+        _red -> :red
+      end
+    else
+      _no_failed_check -> nil
+    end
+  end
+
+  defp recheck(_step, _work, _tree), do: nil
+
+  defp failed_run?({name, result}),
+    do: name in ["run", "certify"] and match?(%{"status" => "failed", "dir" => _}, result)
 
   # Giving up is kept with the work's results and said once, never left silent.
   defp stop(work, step, reason) do
