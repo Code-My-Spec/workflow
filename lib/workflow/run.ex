@@ -308,8 +308,8 @@ defmodule Workflow.Run do
           Checkout.record(root, id, "ci", %{
             "status" => "failed",
             "note" =>
-              "`just ci` failed twice at the commit this work landed as on dev (#{commit}), " <>
-                "so nothing was deployed. Fix it here, and commit:\n\n" <> note
+              "`just ci` failed twice at the commit this work landed as on dev (#{commit}). " <>
+                "Fix it here, and commit:\n\n" <> note
           })
         end
 
@@ -330,7 +330,7 @@ defmodule Workflow.Run do
   defp red(%{"kind" => kind, "id" => id}, commit, note, why) do
     text =
       "#{kind} #{id} landed on dev as commit #{commit}, and `just ci` failed there twice. " <>
-        "Nothing was deployed and nothing was reverted. #{why} The failures:\n\n#{note}"
+        "Nothing was reverted. #{why} The failures:\n\n#{note}"
 
     if Workflow.Manager.configured(),
       do: Task.start(fn -> Workflow.Messages.say("manager", "workflow", text) end)

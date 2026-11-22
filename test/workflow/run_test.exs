@@ -247,12 +247,13 @@ defmodule Workflow.RunTest do
     refute_received {"git", ["worktree", "add", "-b" | _]}
   end
 
-  test "ci-gates-uat: criterion 3 - ci red twice, new with this landing, goes back to the work at its work step with the ci note; nothing is deployed or reverted",
+  test "ci-gates-uat: criterion 3 - ci red twice, new with this landing, goes back to the work at its work step with the ci note; nothing is reverted",
        %{tmp_dir: dir} do
     work = landing(dir, 1)
 
     assert %{name: "fix", actor: :coder, note: note} = Workflow.Run.step(work)
     assert note =~ "`just ci` failed twice"
+    refute note =~ "deployed"
     assert note =~ "c1"
     assert note =~ "ci: 1 failure"
 
@@ -316,7 +317,8 @@ defmodule Workflow.RunTest do
     assert_received {:manager_told, notice}
     assert notice =~ "issue i1"
     assert notice =~ "c1"
-    assert notice =~ "Nothing was deployed and nothing was reverted"
+    assert notice =~ "Nothing was reverted."
+    refute notice =~ "deployed"
     assert notice =~ "b fails"
     refute_received {:manager_told, _again}
     refute_received {"git", ["worktree", "add", "-b" | _]}
@@ -2071,5 +2073,29 @@ defmodule Workflow.RunTest do
     assert notice =~ "Last decision note: the test covers the fault"
     assert notice =~ "Landed as commit c1: 2 files changed, 3 insertions(+), 1 deletion(-)"
     assert_received {"git", ["diff", "--shortstat", "c1^1", "c1"]}
+  end
+
+  test "manager-sees-outcome: criterion 1 - an issue done with no commit landed says that nothing landed",
+       %{tmp_dir: dir} do
+    works_dir(dir)
+    manager()
+
+    # An issue with no commits of its own, every step passed at its tree, its
+    # promote kept with no commit (as a results file written before promote kept one).
+    work = checkout(dir, 0, 0)
+    Workflow.Checkout.record(dir, "i1", "certify", %{"status" => "passed"})
+    Workflow.Checkout.record(dir, "i1", "review", %{"status" => "pass"})
+    Workflow.Checkout.record(dir, "i1", "promote", %{"status" => "promoted"})
+
+    capture_log(fn ->
+      Workflow.Run.start(work)
+      settled()
+    end)
+
+    idle()
+    assert_received {:manager_told, notice}
+    assert notice =~ "issue i1: done"
+    assert notice =~ "Nothing landed."
+    refute notice =~ "Landed as commit"
   end
 end
