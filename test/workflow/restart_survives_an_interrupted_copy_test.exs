@@ -72,13 +72,10 @@ defmodule Workflow.RestartSurvivesAnInterruptedCopyTest do
     file
   end
 
-  # Waits for the work to leave flight; one that never does holds its slot.
-  defp landed(file, tries \\ 200) do
-    cond do
-      not File.exists?(file) -> :ok
-      tries == 0 -> flunk("the work is still in flight, holding a slot: #{file}")
-      true -> Process.sleep(50) && landed(file, tries - 1)
-    end
+  # Waits on the resumed run ending, not on a clock; one still in flight then holds its slot.
+  defp landed(file) do
+    Workflow.Settled.idle()
+    refute File.exists?(file), "the work is still in flight, holding a slot: #{file}"
   end
 
   defp wait_for(file, tries \\ 200) do

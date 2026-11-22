@@ -105,14 +105,7 @@ defmodule Workflow.RunTest do
 
     on_exit(fn ->
       # A deploy still running in the background would land in the next test's settings.
-      deploying = fn deploying ->
-        if Enum.any?(:global.registered_names(), &match?({Workflow.Run, :deploy, _}, &1)) do
-          Process.sleep(10)
-          deploying.(deploying)
-        end
-      end
-
-      deploying.(deploying)
+      deployed()
       Application.delete_env(:workflow, :cmd)
     end)
 
@@ -421,7 +414,8 @@ defmodule Workflow.RunTest do
     assert_received {"git", ["merge", "--no-ff", "--no-edit", _commit]}
 
     # The loop hands in a provision for uat by itself: a checkout cut for an id of uat and t1.
-    assert_receive {"git", ["worktree", "add", "-b" | add_args]}, 2_000
+    idle()
+    assert_received {"git", ["worktree", "add", "-b" | add_args]}
     cut = Enum.join(add_args, " ")
     assert cut =~ "uat" and cut =~ "t1"
   end
@@ -447,7 +441,8 @@ defmodule Workflow.RunTest do
     assert_received {"git", ["merge", "--no-ff", "--no-edit", _commit]}
 
     # The landing starts nothing: no checkout is cut and no work is in flight.
-    refute_receive {"git", ["worktree", "add", "-b" | _]}, 500
+    idle()
+    refute_received {"git", ["worktree", "add", "-b" | _]}
     assert Path.wildcard(Path.join(Workflow.Run.works_dir(), "*.json")) == []
 
     # With deploy set, the same kind of landing hands in a provision for that target and tree.
@@ -456,7 +451,8 @@ defmodule Workflow.RunTest do
     assert :ok = Workflow.ConfigFile.load()
 
     assert Workflow.Run.step(Map.put(work, "id", "i2")) == nil
-    assert_receive {"git", ["worktree", "add", "-b" | add_args]}, 2_000
+    idle()
+    assert_received {"git", ["worktree", "add", "-b" | add_args]}
     cut = Enum.join(add_args, " ")
     assert cut =~ "uat" and cut =~ "t1"
   end
@@ -491,7 +487,8 @@ defmodule Workflow.RunTest do
     assert_received {"git", ["merge", "--no-ff", "--no-edit", _commit]}
 
     # Its landing starts no other provision.
-    refute_receive {"git", ["worktree", "add" | _]}, 500
+    idle()
+    refute_received {"git", ["worktree", "add" | _]}
     assert Path.wildcard(Path.join(Workflow.Run.works_dir(), "*.json")) == []
   end
 
@@ -657,7 +654,8 @@ defmodule Workflow.RunTest do
     assert_received {"just", ["--show", "ci"]}
     refute_received {"just", ["ci", _run]}
 
-    assert_receive {"git", ["worktree", "add", "-b" | add_args]}, 2_000
+    idle()
+    assert_received {"git", ["worktree", "add", "-b" | add_args]}
     assert Enum.join(add_args, " ") =~ "uat-t1"
     assert List.last(add_args) == "c1"
   end
@@ -670,7 +668,8 @@ defmodule Workflow.RunTest do
     assert_received {"just", ["ci", _run]}
 
     # The provision's checkout is cut at the landed commit, not at whatever the main copy is at by then.
-    assert_receive {"git", ["worktree", "add", "-b" | add_args]}, 2_000
+    idle()
+    assert_received {"git", ["worktree", "add", "-b" | add_args]}
     assert ["provision/uat-t1", _root, "c1"] = add_args
   end
 
@@ -688,7 +687,8 @@ defmodule Workflow.RunTest do
     assert_received {"just", ["ci", second]}
     assert first != second
 
-    refute_receive {"git", ["worktree", "add", "-b" | _]}, 500
+    idle()
+    refute_received {"git", ["worktree", "add", "-b" | _]}
     refute_received {"git", ["revert" | _]}
   end
 
@@ -702,7 +702,8 @@ defmodule Workflow.RunTest do
 
     # The next landing is red with the same failures: it ends, and nobody is told.
     assert Workflow.Run.step(Map.put(work, "id", "i2")) == nil
-    refute_receive {:manager_told, _notice}, 500
+    idle()
+    refute_received {:manager_told, _notice}
     refute_received {"git", ["worktree", "add", "-b" | _]}
   end
 
@@ -737,12 +738,13 @@ defmodule Workflow.RunTest do
     work = landing(dir, 1, sarif)
 
     assert Workflow.Run.step(work) == nil
-    assert_receive {:manager_told, notice}, 2_000
+    idle()
+    assert_received {:manager_told, notice}
     assert notice =~ "issue i1"
     assert notice =~ "c1"
     assert notice =~ "Nothing was deployed and nothing was reverted"
     assert notice =~ "b fails"
-    refute_receive {:manager_told, _again}, 500
+    refute_received {:manager_told, _again}
     refute_received {"git", ["worktree", "add", "-b" | _]}
   end
 
@@ -753,9 +755,10 @@ defmodule Workflow.RunTest do
     assert Workflow.Run.step(work) == nil
     assert_received {"just", ["ci", _run]}
 
-    assert_receive {"git", ["worktree", "add", "-b" | add_args]}, 2_000
+    idle()
+    assert_received {"git", ["worktree", "add", "-b" | add_args]}
     assert ["provision/uat-t1" | _] = add_args
-    refute_receive {"git", ["worktree", "add", "-b" | _]}, 500
+    refute_received {"git", ["worktree", "add", "-b" | _]}
 
     File.write!(Path.join(dir, "config.json"), ~s({"deploy": "prod"}))
     assert {:error, why} = Workflow.ConfigFile.load()
@@ -811,13 +814,14 @@ defmodule Workflow.RunTest do
     refute_received {"just", ["ci", _again]}
 
     flake = %{"file" => "test/a_test.exs", "test" => "test a flaky one (ATest)"}
-    assert_receive {:report, %{"work" => "i1", "flakes" => [^flake]}}, 3_000
+    idle()
+    assert_received {:report, %{"work" => "i1", "flakes" => [^flake]}}
 
-    assert_receive {:manager_told, told}, 3_000
+    assert_received {:manager_told, told}
     assert told =~ "test/a_test.exs: test a flaky one (ATest)"
 
     # Green: deployed as any green landing is.
-    assert_receive {"git", ["worktree", "add", "-b", "provision/uat-t1" | _]}, 2_000
+    assert_received {"git", ["worktree", "add", "-b", "provision/uat-t1" | _]}
   end
 
   test "look-steps: criterion 3", %{tmp_dir: dir} do
@@ -1094,9 +1098,8 @@ defmodule Workflow.RunTest do
       assert File.exists?(Path.join(works_dir, "i1.json"))
       assert %{working: true} = Workflow.Run.look(work)
 
-      ref = Process.monitor(certifying)
       send(certifying, :go)
-      assert_receive {:DOWN, ^ref, :process, _pid, _reason}, 2_000
+      idle()
     end)
 
     assert %{"status" => "passed"} = Workflow.Run.look(work).found["certify"]
@@ -1541,7 +1544,8 @@ defmodule Workflow.RunTest do
     # It waits, with the reason kept, and the manager is told as for any waiting work.
     assert %{"reason" => reason} = Workflow.Checkout.stopped(dir, "uat-t0")
     assert reason =~ "waiting on its owner"
-    assert_receive {:manager_told, notice}, 2_000
+    idle()
+    assert_received {:manager_told, notice}
     assert notice =~ "provision uat-t0"
     assert notice =~ "waiting on its owner"
   end
@@ -2539,7 +2543,8 @@ defmodule Workflow.RunTest do
     assert Path.wildcard(Path.join(works, "*.json")) == []
 
     # Said to the manager as any step's stop is, never a silent half-started work.
-    assert_receive {:manager_told, notice}, 2_000
+    idle()
+    assert_received {:manager_told, notice}
     assert notice =~ "issue i1: stopped at copy-setup"
     assert notice =~ "could not fetch deps"
   end
@@ -2641,7 +2646,8 @@ defmodule Workflow.RunTest do
     end)
 
     # Delivered: the manager's next turn is the notice.
-    assert_receive {:manager_told, notice}, 2_000
+    idle()
+    assert_received {:manager_told, notice}
     assert notice =~ "issue i1"
     assert notice =~ "done"
 
@@ -2671,7 +2677,8 @@ defmodule Workflow.RunTest do
       settled()
     end)
 
-    assert_receive {:manager_told, notice}, 2_000
+    idle()
+    assert_received {:manager_told, notice}
     assert notice =~ "issue i1: done"
     assert notice =~ "Last decision note: the test covers the fault"
     assert notice =~ "Landed as commit c1: 2 files changed, 3 insertions(+), 1 deletion(-)"
@@ -2687,7 +2694,8 @@ defmodule Workflow.RunTest do
       settled()
     end)
 
-    assert_receive {:manager_told, notice}, 2_000
+    idle()
+    assert_received {:manager_told, notice}
     assert notice =~ "provision p1: done"
     assert notice =~ "Nothing landed."
     refute notice =~ "Landed as commit"

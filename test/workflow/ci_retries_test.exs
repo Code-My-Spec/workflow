@@ -6,6 +6,12 @@ defmodule Workflow.CiRetriesTest do
 
   alias Workflow.Checkout
 
+  # The loop's background work is waited on (`idle/0`): none is left from a test before.
+  setup do
+    Workflow.Tellings.quiet()
+    on_exit(&Workflow.Tellings.quiet/0)
+  end
+
   defp sarif(results) do
     Jason.encode!(%{
       "version" => "2.1.0",
@@ -116,14 +122,10 @@ defmodule Workflow.CiRetriesTest do
     Application.delete_env(:workflow, :recipients)
   end
 
-  # What the manager was told, waiting a little for the loop's background telling.
+  # What the manager was told, once the loop's background telling has ended.
   defp told do
-    Enum.find_value(1..20, [], fn _ ->
-      case Workflow.Messages.unread("manager") do
-        [] -> Process.sleep(50) && nil
-        messages -> messages
-      end
-    end)
+    Workflow.Settled.idle()
+    Workflow.Messages.unread("manager")
   end
 
   test "ci-retries-with-a-retry-recipe: criteria 1, 2 and 3 - a failing ci is followed by just retry in the same checkout, both runs kept side by side, the flake named to the manager",

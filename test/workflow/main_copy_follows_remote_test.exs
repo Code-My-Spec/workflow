@@ -5,6 +5,12 @@ defmodule Workflow.MainCopyFollowsRemoteTest do
 
   alias Workflow.Checkout
 
+  # The loop's background work is waited on (`idle/0`): none is left from a test before.
+  setup do
+    Workflow.Tellings.quiet()
+    on_exit(&Workflow.Tellings.quiet/0)
+  end
+
   defp git(cwd, args) do
     {out, 0} = System.cmd("git", args, cd: cwd, stderr_to_stdout: true)
     String.trim(out)
@@ -96,13 +102,9 @@ defmodule Workflow.MainCopyFollowsRemoteTest do
     snapshot = %{head: "h", main: "main", results: %{"h" => %{"promote" => result}}}
     assert {:to, "fix", %{stop: true}} = Workflow.Issue.status(%{name: "promote"}, snapshot)
 
-    told =
-      Enum.find_value(1..40, [], fn _ ->
-        case Workflow.Messages.unread("manager") do
-          [] -> Process.sleep(50) && nil
-          messages -> messages
-        end
-      end)
+    # Told in the background: waited on, not on a clock.
+    Workflow.Settled.idle()
+    told = Workflow.Messages.unread("manager")
 
     assert [%{"text" => text}] = told
     assert text =~ "CONFLICT"

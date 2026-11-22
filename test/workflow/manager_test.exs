@@ -1653,19 +1653,20 @@ defmodule Workflow.ManagerTest do
     assert {:ok, _said} =
              use_tool.("decide", %{"id" => "j1", "kind" => "journey", "demo" => "approve"})
 
-    # Its promote is the system's, run after decide answers.
-    assert_receive {"git", ["merge", "--no-ff", "--no-edit", "c1"]}, 2_000
-
-    # Its landing tells the manager in the background: waited for too, or the
-    # telling outlives this test and runs the next test's (or a real) manager.
-    assert_receive {:told, "journey j1: " <> _}, 5_000
-
-    # The killed agent's work is stopped and the manager told so: waited for here,
-    # so the telling never lands in the next test's manager.
+    # The killed agent's work is stopped and the manager told so. With i1's turn
+    # gone every run ends by itself, so all are waited on, not on a clock, and no
+    # telling lands in the next test's manager.
     capture_log(fn ->
       Process.exit(agent, :kill)
-      assert_receive {:told, "issue i1: stopped" <> _}, 5_000
+      Workflow.Settled.idle()
     end)
+
+    # Its promote is the system's, run after decide answers.
+    assert_received {"git", ["merge", "--no-ff", "--no-edit", "c1"]}
+
+    # Its landing tells the manager in the background.
+    assert_received {:told, "journey j1: " <> _}
+    assert_received {:told, "issue i1: stopped" <> _}
   end
 
   test "prod-waits-for-the-owner: criterion 4 - neither the manager's decide nor a say from the chat starts a waiting prod provision's steps",
