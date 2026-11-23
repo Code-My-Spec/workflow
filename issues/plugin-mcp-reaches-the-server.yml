@@ -1,0 +1,35 @@
+id: "plugin-mcp-reaches-the-server"
+kind: "issue"
+title: The manager gets no plugin MCP tools, and a plugin's .mcp.json cannot reach the loop's server
+text: |-
+  Fault: the owner's design is that issues live on the server, and the plugin gives agents an issues client (the server's existing MCP issue tools). The loop itself knows nothing about issues. Two gaps stop that today:
+  1. The manager is not given the plugin's MCP tools. Workflow.Mcp.tools/0 reaches only Claude Code work agents (lib/workflow/agents.ex), not Workflow.Manager.tools/1.
+  2. A plugin's `.mcp.json` cannot carry the loop's server credential, because Workflow.Mcp only substitutes ${CLAUDE_PLUGIN_ROOT}.
+
+  Wanted, as the smallest change that does it, with no new config keys and no new options:
+  1. The manager gets Workflow.Mcp.tools() beside its own tools.
+  2. Workflow.Mcp substitutes three more placeholders in the `.mcp.json` text:
+     - ${WORKFLOW_SERVER_URL}: the config's server url as https, its base without /socket/websocket.
+     - ${WORKFLOW_PROJECT_ID}: the config's server project_id.
+     - ${WORKFLOW_SERVER_TOKEN}: Workflow.SignIn.token/1 for that server, fetched fresh at each session (so an expiring token is refreshed as today). It is never logged, and never written to a conversation file or any other file.
+  3. With no server configured, a server entry that uses any of these placeholders is left out, with one warning naming the entry. The other entries still load, and nothing crashes.
+
+  A plugin can then say: {"mcpServers": {"codemyspec": {"url": "${WORKFLOW_SERVER_URL}/mcp", "headers": {"Authorization": "Bearer ${WORKFLOW_SERVER_TOKEN}"}}}}.
+
+  Do not add anything about issues to the loop.
+
+  Confirm in the code first how Workflow.Mcp reads and substitutes .mcp.json, how Agents.run adds its tools, how Manager.tools/1 builds the manager's list, and where the server url and project_id come from in config. Grep every caller of what you change.
+
+  Check: tests with a fake plugin folder, a fake MCP server (stdio or loopback HTTP, as plugin_mcp_test.exs does) and a fake sign-in token, with no network and never the real ~/.workflow or .git/workflow. Each test must fail without the fix:
+  - the manager's tool list includes the fake plugin MCP server's tools;
+  - the three placeholders are substituted with the configured url (https, no /socket/websocket), the project_id and the token;
+  - the token never appears in a captured log line or in a conversation file;
+  - with no server configured, the entry using the placeholders is skipped with one warning and nothing crashes.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When the configured plugin folder has .mcp.json, the manager's tool list includes that plugin's MCP server tools beside its own tools"
+  - "In the plugin's .mcp.json, ${WORKFLOW_SERVER_URL} becomes the configured server's https base url (without /socket/websocket), ${WORKFLOW_PROJECT_ID} becomes the configured project_id, and ${WORKFLOW_SERVER_TOKEN} becomes a fresh sign-in token for that server at each session"
+  - "The server token never appears in any log line or conversation file"
+  - "With no server configured, a .mcp.json server entry that uses any of these placeholders is left out with one warning, and the other entries and the loop keep working"
