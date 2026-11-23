@@ -1,0 +1,29 @@
+id: "loop-answers-support"
+kind: "issue"
+title: The loop handles none of the support messages and doesn't say which harness it runs on
+text: |-
+  Fault: the server side of support has shipped (Code My Spec story support-agent-answers-managers). A manager asks support, the server pushes the question to Code My Spec's own loop, and support's answer is pushed back to the asking project's loop. The loop (lib/workflow/server.ex, topic loop:<project_id>) handles none of this, and it doesn't say which harness it runs on.
+
+  The server contract, as built (keep to it exactly):
+  1. On join of loop:<project_id>, the join payload may carry "harness_id", the harness's CMS_HARNESS_ID string. Send it when the loop knows one. When it doesn't, leave the key out and join as today. Confirm in the code where the loop can know it (for example the CMS_HARNESS_ID environment variable), and name that in the decision note.
+  2. Server -> loop push "start_support" %{"project_id" => the asking project, "thread_id", "question", "resume" => a resume handle or nil}. It arrives only on Code My Spec's own loop. The loop starts a support agent session, resuming "resume" when it is given. The session's task is to answer the question for that project and reply with the reply_to_support_thread tool, with conversation_id = thread_id.
+  3. Loop -> server push "support_session" %{"thread_id", "resume"}, sent once the session has a resume handle (a Claude Code session id, an opaque string). The server replies {:ok, %{thread_id}} or {:error, %{error}}. Log an error reply in one line. It doesn't stop the session.
+  4. Server -> loop push "wake" %{"from" => "support", "thread_id", "agent_id" => the asking manager, "text" => "[From CodeMySpec support] ..."}. The loop hands the text to its manager as a message, the way a say arrives.
+
+  A support session is not a work. It holds no copy, no branch, no works file and no slot, so it never counts against the cap.
+
+  Wanted: the smallest change that does this, with no new config options. Confirm in the code first how Workflow.Server joins, handles pushes and pushes with a reply (presign and message are examples). Also confirm how an agent session is started and how its session id or resume handle is obtained, and how a say reaches the manager. Grep every caller of what you change. Keep the existing handling (event, presign, uploaded, pushed, message, the report stop for an old server, the rejoin backoff) as it is.
+
+  Check: one test per message, against a fake channel and a fake agent, with no network and never the real ~/.workflow or .git/workflow. Each test must fail without its code.
+  - With a harness id set, the join payload carries harness_id. With none set, it has no such key.
+  - start_support starts exactly one support session, with the question, the project, the thread_id and the resume handle when given. It pushes support_session {thread_id, resume} once the session has its handle. No works file, copy or slot is used.
+  - wake reaches the manager as a message carrying the text.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When the loop knows a harness id, its join of loop:<project_id> carries \"harness_id\" with that string; when it knows none, the join payload has no harness_id and the join works as today"
+  - "A \"start_support\" push starts one support agent session for the asking project, resuming the given resume handle when there is one, whose task is to answer the question and reply with reply_to_support_thread using the thread_id as conversation_id"
+  - "Once a support session has its resume handle, the loop pushes \"support_session\" {thread_id, resume}"
+  - "A support session holds no copy, branch, works file or slot, and does not count against the cap"
+  - "A \"wake\" push from support reaches the loop's manager as a message carrying its text, the way a say arrives"
