@@ -1,0 +1,20 @@
+id: "ci-verdict-skipped-is-done"
+kind: "issue"
+title: A ci event with verdict skipped does not finish the work
+text: |-
+  Fault: the server will send a `ci` event with payload verdict "skipped" for projects it does not run CI for, with a note such as "No CI runs for this project yet; certify was the gate." The loop's external `ci` step (added by loop-waits-on-evidence, c164fcc) knows only green, flaky and red, so a skipped verdict does not finish the work.
+
+  Wanted, as the smallest change that does it, with no new options:
+  1. The external `ci` step treats verdict "skipped" exactly as "green": the work is done, and its copy and agents are released.
+  2. The payload's `note` goes into the work's final note (what the manager is told and what `look` shows). With no note in the payload, the final note reads as a green one does.
+  3. Unknown verdicts stay as they are today.
+
+  Confirm in the code first where the ci event's verdict is handled (Parts.ci/2 and the ci step in run.ex, and the boot path that acts on a recorded ci event, from a-landed-work-resumes-waiting-on-ci, f10c3f5), and make both paths treat skipped the same way. Grep every caller of what you change.
+
+  Check: one test in a temporary git repo with a fake agent and fake channel, never the real ~/.workflow or .git/workflow. A landed work waiting at ci is given a ci event with verdict "skipped" and a note. It ends done and released, and its final note holds the payload's note. The test must fail without the fix. Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A landed work waiting at its ci step that is given a ci event with verdict \"skipped\" ends done, with its copy and agents released, as with verdict \"green\""
+  - "That work's final note includes the payload's note"
+  - "A ci event with an unknown verdict is handled as it is today"
