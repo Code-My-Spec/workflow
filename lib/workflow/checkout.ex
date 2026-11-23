@@ -336,7 +336,8 @@ defmodule Workflow.Checkout do
   @spec landed?(String.t() | nil, String.t(), String.t()) :: boolean()
   def landed?(repo, kind, id) do
     with %{folder: folder} <- landing(repo) do
-      branch_merged?(folder, "#{kind}/#{id}") or commits_merged?(folder, "#{kind} #{id}: ")
+      branch_merged?(folder, "#{kind}/#{id}") or commits_merged?(folder, "#{kind} #{id}: ") or
+        promoted?(folder, repo, id)
     else
       _none -> false
     end
@@ -352,6 +353,23 @@ defmodule Workflow.Checkout do
     else
       _none -> false
     end
+  end
+
+  # Seen live: a story whose file was already in the main copy got no commit of
+  # its own naming it, and its branch is deleted when it lands, so after a restart
+  # it read as never started. The merge promote made is kept in its results file,
+  # which pruning keeps: in the main copy's history, the work landed.
+  defp promoted?(folder, repo, id) do
+    repo
+    |> results(id)
+    |> Map.values()
+    |> Enum.any?(fn
+      %{"promote" => %{"status" => "promoted", "commit" => "" <> commit}} ->
+        match?({:ok, _}, git(folder, ["merge-base", "--is-ancestor", commit, "HEAD"]))
+
+      _other ->
+        false
+    end)
   end
 
   # Merged into it, as branch_merged? asks: an issue's file is committed on the
@@ -772,15 +790,10 @@ defmodule Workflow.Checkout do
     end
   end
 
-  # What a recipe the loop runs is given: the call's own `env`, and CODEMYSPEC_PLUGIN
-  # as the plugin folder in use, absolute, so a project's recipes can find it. Not
-  # set with no plugin.
-  defp recipe_env(env) do
-    case Workflow.Plugin.dir() do
-      nil -> env
-      dir -> [{"CODEMYSPEC_PLUGIN", Path.expand(dir)} | env]
-    end
-  end
+  # What a recipe the loop runs is given: the call's own `env`, and the plugin's
+  # (`Workflow.Plugin.env/0`, as each agent's shell has), so a project's recipes
+  # can find it. Not set with no plugin.
+  defp recipe_env(env), do: Workflow.Plugin.env() ++ env
 
   defp run_recipe(root, dir, dir_analysis, args, env, recipe, into, context) do
     target = if into, do: Path.join(dir_analysis, into), else: Sarif.new_run(dir_analysis)
