@@ -793,7 +793,8 @@ defmodule Workflow.Run do
     # One queued behind a work no longer in flight or queued is started.
     ids = Enum.map(story_works(), & &1["id"])
 
-    for %{"queued" => true, "behind" => behind} <- story_works(), behind not in ids,
+    for %{"queued" => true, "behind" => behind} <- story_works(),
+        behind not in ids,
         do: release(behind)
 
     :ok

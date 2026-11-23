@@ -281,7 +281,8 @@ defmodule Workflow.Checkout do
   def pinned(repo, at) do
     with %{folder: folder} <- landing(repo),
          _fetched <- fetched(folder),
-         {:ok, sha} <- git(folder, ["rev-parse", "--verify", "--quiet", "#{at || "HEAD"}^{commit}"]) do
+         {:ok, sha} <-
+           git(folder, ["rev-parse", "--verify", "--quiet", "#{at || "HEAD"}^{commit}"]) do
       {:ok, sha}
     else
       _none -> :none
