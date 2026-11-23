@@ -1,0 +1,24 @@
+id: "reviewers-get-the-plugin-env"
+kind: "issue"
+title: Reviewers lack the plugin env, and a restart lists landed works as never started
+text: |-
+  Two faults seen live on the Smart AI Books loop.
+
+  (1) Reviewers' shells don't have CODEMYSPEC_PLUGIN set. So since the evidence-format change, no reviewer can run `just certify`. The coder's shell and the loop's own certify run do have it (recipes-know-the-plugin, b71e2c5, added recipe_env/1 in checkout.ex).
+
+  Wanted, as the smallest change, with no new options: every agent the loop starts for a work (coder, reviewer, qa, any role) gets the same plugin env the coder gets, from the one place that sets it. Recipes keep getting it from that same place, so there is no second copy. With no plugin configured, the variable is not set for anyone, as today. Confirm in the code first where the coder gets it and why the reviewer doesn't (for example a role check, or a provider path that drops env), and name it in the decision note.
+
+  (2) After a restart, the loop listed three works that had already landed as "never started": approve-block-approves-undelivered-work, headshot-tag-completes-checklist and producer-run-errors-plain-words. Find why a restart loses a landed work's state, and name the cause in the decision note. Places to check: what landing and pruning remove (loop-prunes-its-leftovers, 1a40520, keeps <id>.json), how the listing decides "never started" (for example Report.unstarted reading story files with no works file), and the boot path from a-landed-work-resumes-waiting-on-ci (f10c3f5). Fix it so a landed work is reported as landed (done, or waiting at ci) after a restart, using the durable facts the loop already keeps. Add no new store.
+
+  Grep every caller of what you change.
+
+  Check: tests with a fake agent, in temporary git repos and works dirs, never the real ~/.workflow or .git/workflow. Each test must fail without its fix.
+  - A reviewer's agent turn has CODEMYSPEC_PLUGIN in its env pointing at the configured plugin root. Show the coder's still does too.
+  - A work lands, the service restarts, and the listing or status shows it as landed, not never started.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "When a plugin is configured, every agent the loop starts for a work (coder, reviewer, qa, any role) has CODEMYSPEC_PLUGIN in its shell env set to the plugin root's absolute path, the same value the coder gets"
+  - "The plugin env every agent gets and the env recipes get come from one place in the code"
+  - "After a restart, a work that had already landed is reported with its landed state (done, or waiting at ci), not as never started"
