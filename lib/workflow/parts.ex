@@ -165,7 +165,8 @@ defmodule Workflow.Parts do
 
   @doc """
   The `ci` step, after promote: done once a ci event is recorded at the tree,
-  green or flaky. Red goes back to the `back` step with the failing tests, as a
+  green, flaky or skipped (no ci runs for the project; its note is the done
+  note, see `Workflow.Run.look/1`). Red goes back to the `back` step with the failing tests, as a
   failed certify does. With none yet, the work waits on it: an old server never
   sends one, and the manager releases the work by hand.
   """
