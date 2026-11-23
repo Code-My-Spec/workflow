@@ -1,0 +1,27 @@
+id: "story-hand-in-pins-a-commit"
+kind: "issue"
+title: A story hand-in reads the moving branch instead of a pinned commit
+text: |-
+  Step 1 (the loop's half) of a design the owner approved and said "Go" to. The person's CHAT agent now interviews and writes story files itself with git, straight to the project's development branch. The loop's manager only accepts hand-ins, runs and lands works, reports status, and messages the chat. Today the loop expects to write story files itself and reads them from the moving branch, so a story can change under a running work.
+
+  Wanted, with no new config options:
+  1. STORY PATH: stories live at `.code_my_spec/stories/<id>.yml`. Read there first. When that file does not exist, fall back to `stories/<id>.yml`, so older projects keep working (absent = old rule). The same goes for journeys, which are stories. Apply this everywhere the loop reads or writes a story path: StoryFile and its callers, the manager, and the briefs that name the path to coders. Coders still never touch story files; name both paths in that rule.
+  2. HAND-IN PINS A COMMIT: the manager's hand-in of a story takes a new field `at`, a commit sha ("hand in story <id> at <sha>"). The manager fetches the main copy first, checks that the story file exists at that commit, and records the sha on the work. The work's agents read the story AT THAT COMMIT (`git show <sha>:<path>`), never the moving branch. With no `at`: today's behaviour (the file as it is at the main copy's HEAD), and record that HEAD's sha. A sha that does not exist, or at which the story file does not exist, is refused with a message saying which.
+  3. OPEN QUESTIONS REFUSE: if the story at that commit has a non-empty `questions:` block, the hand-in is refused, and the answer names the questions. The exception is a hand-in with a new field `go: true`, meaning the person explicitly said go despite them. Put this rule in the manager's brief.
+  4. STORIES ARE NOT FROZEN: a second hand-in of the same story id at a NEWER sha while the first work is still in flight makes a new work with id `<story>-<short sha>`, queued behind the first: it starts when the first is done or stopped. Its coder is told it builds the difference between the two shas, and is given `git diff <old>..<new> -- <story path>`. A hand-in of the same sha again is refused as a duplicate.
+  5. The manager no longer writes the story file for a hand-in that names an existing file. The "the story as handed in" commit is only for hand-ins that carry their own text (today's path, kept).
+
+  Confirm in the code first where story paths are built and read (StoryFile, the manager's hand_in, briefs in parts.ex/agents.ex), and grep every caller of what you change.
+
+  Check: one test per rule above, in temporary git repos with a fake agent, never the real ~/.workflow or .git/workflow, each failing when its code is removed. Cover: the new path read first with the old path as fallback; a hand-in at an older sha whose agent sees that commit's text after the branch moved on; no `at` records HEAD's sha; open questions refused and `go: true` accepted; a newer sha queued as <story>-<short sha> with the diff in its coder's note, and the same sha refused; and an existing-file hand-in making no commit. Don't weaken or delete any existing test.
+
+  Report in the decision note, exactly as built, the manager hand_in tool's fields for a story (names, types, required or optional, and what each answer says), because the chat agent's skill is written against them.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "The loop reads a story or journey from .code_my_spec/stories/<id>.yml, and falls back to stories/<id>.yml only when the first does not exist"
+  - "A story hand-in with `at` = <sha> is accepted only when the story file exists at that commit in the fetched main copy; the sha is recorded on the work, and the work's agents are given the story as it is at that commit, not at the branch's later head"
+  - "A story hand-in with no `at` uses the story at the main copy's HEAD and records that HEAD's sha on the work"
+  - "A story hand-in whose story at that commit has a non-empty `questions:` block is refused with an answer naming the questions, unless the hand-in carries `go: true`"
+  - "A second hand-in of the same story id at a newer sha while the first work is in flight makes a new work <story>-<short sha> that starts only once the first is done or stopped, and its coder is given `git diff <old>..<new> -- <story path>`; a hand-in at the same sha again is refused as a duplicate"
+  - "A hand-in that names an existing story file commits nothing to the main copy; a hand-in that carries its story text still commits it as 'the story as handed in', as today"
