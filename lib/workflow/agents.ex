@@ -165,6 +165,7 @@ defmodule Workflow.Agents do
       review(step, work, snapshot),
       said == [] && work["text"],
       said == [] && own(work),
+      said == [] && pinned(work),
       project(work)
     ]
     |> Enum.filter(&is_binary/1)
@@ -204,6 +205,27 @@ defmodule Workflow.Agents do
         nil
     end
   end
+
+  # A story handed in at a commit is read at that commit, never on the branch,
+  # which may have moved on since; one queued at a newer commit builds the difference.
+  defp pinned(%{"story_at" => "" <> sha, "story_path" => "" <> path} = work) do
+    at =
+      "This story is as it is at commit #{sha}: read it with `git show #{sha}:#{path}`, " <>
+        "never from the branch, which may have moved on."
+
+    case work do
+      %{"story_from" => "" <> from} ->
+        at <>
+          "\n\nYou build the difference between #{from} and #{sha}: the work at #{from} " <>
+          "builds the story as it was there. `git diff #{from}..#{sha} -- #{path}` says:\n\n" <>
+          (work["story_diff"] || "")
+
+      _first ->
+        at
+    end
+  end
+
+  defp pinned(_work), do: nil
 
   # Said only of a work inside another project's checkout: there a `cd` is lost
   # between an agent's commands. How to run a tool there is the plugin's to say.

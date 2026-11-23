@@ -69,7 +69,8 @@ defmodule Workflow.Report do
   end
 
   @doc """
-  A report, status not started, for each journey file under `stories/` in
+  A report, status not started, for each journey file under
+  `.code_my_spec/stories/` (else `stories/`) in
   `repo` (or a project directory of it) that has no work: sent when the loop
   starts. A file no longer there is not reported.
   """
@@ -83,9 +84,13 @@ defmodule Workflow.Report do
 
     commit = Checkout.commit(repo)
 
+    # `.code_my_spec/stories/` first: an id there is not read again from `stories/`.
     for file <-
-          Path.wildcard(Path.join(repo, "stories/*.yml")) ++
-            Path.wildcard(Path.join(repo, "*/stories/*.yml")),
+          Enum.flat_map(
+            ~w(.code_my_spec/stories/*.yml */.code_my_spec/stories/*.yml stories/*.yml */stories/*.yml),
+            &Path.wildcard(Path.join(repo, &1))
+          )
+          |> Enum.uniq_by(&{project_of(repo, &1), Path.basename(&1)}),
         yml = File.read!(file),
         String.match?(yml, ~r/^kind: "?journey"?\s*$/m),
         id = field(yml, "id") || Path.basename(file, ".yml"),
@@ -111,6 +116,14 @@ defmodule Workflow.Report do
   end
 
   def unstarted(_no_repo), do: []
+
+  # The project directory a story file is in, nil at the repository's top.
+  defp project_of(repo, file) do
+    case file |> Path.relative_to(repo) |> Path.split() do
+      [top | _] when top in [".code_my_spec", "stories"] -> nil
+      [project | _] -> project
+    end
+  end
 
   defp safely(make) do
     make.()
