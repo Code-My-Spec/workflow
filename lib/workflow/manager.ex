@@ -106,7 +106,8 @@ defmodule Workflow.Manager do
       messages = bounded(remembered())
       conversation = Workflow.Conversation.path(manager["repo"], "manager")
       who = %{work: nil, step: nil, role: :manager}
-      tools = tools(manager)
+      # Its own tools, and the plugin's MCP servers' beside them.
+      tools = tools(manager) ++ Workflow.Mcp.tools(:manager)
       system = @brief <> landing(manager) <> Workflow.Skills.brief(skills)
       Workflow.Conversation.begun(conversation, who, system, tools)
       Workflow.Conversation.append(conversation, who, :prompt, text)
