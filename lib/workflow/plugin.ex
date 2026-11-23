@@ -15,6 +15,18 @@ defmodule Workflow.Plugin do
   def dir, do: Application.get_env(:workflow, :plugin)
 
   @doc """
+  What every recipe and every agent's shell the loop starts is given of the
+  plugin: CODEMYSPEC_PLUGIN as its folder, absolute. Nothing with no plugin.
+  """
+  @spec env() :: [{String.t(), String.t()}]
+  def env do
+    case dir() do
+      nil -> []
+      dir -> [{"CODEMYSPEC_PLUGIN", Path.expand(dir)}]
+    end
+  end
+
+  @doc """
   The plugin named by `path`, read against `repo` when relative: `{:ok,
   absolute folder}`, or `{:error, why}` when it names no folder or one with no
   `.claude-plugin/plugin.json`.

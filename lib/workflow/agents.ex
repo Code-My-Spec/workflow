@@ -96,8 +96,11 @@ defmodule Workflow.Agents do
       alloy_run.(
         prompt,
         messages: said,
-        # One agent-browser session per work, shared by its agents.
-        context: %{bash_env: %{"AGENT_BROWSER_SESSION" => id}},
+        # One agent-browser session per work, shared by its agents; and the
+        # plugin's env, as every recipe the loop runs has it, whatever the role.
+        context: %{
+          bash_env: Map.put(Map.new(Workflow.Plugin.env()), "AGENT_BROWSER_SESSION", id)
+        },
         provider: provider,
         tools: tools,
         # A reviewer must decide; an agent that only may is not held to it. Nil,
