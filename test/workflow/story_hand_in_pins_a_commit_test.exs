@@ -10,14 +10,17 @@ defmodule Workflow.StoryHandInPinsACommitTest do
   defp story(said, more \\ "") do
     """
     # written by the chat
+    id: k3f9a2qw
     title: Invite a teammate
     workflow: team-setup
     story: >
       #{said}
     rules:
       - rule: Only an owner may invite.
+        id: 7hd2k3pz
         scenarios:
           - happy: An owner invites by email and the invite is sent.
+            id: x9m4c8tb
     #{more}\
     """
   end
@@ -214,7 +217,8 @@ defmodule Workflow.StoryHandInPinsACommitTest do
 
     grown =
       story("As an owner I want to invite.") <>
-        "      - fails: A member tries to invite and is told only owners can.\n"
+        "      - fails: A member tries to invite and is told only owners can.\n" <>
+        "        id: r5w2n7qa\n"
 
     new = commit(chat, [{@path, grown}])
     short = String.slice(new, 0, 7)

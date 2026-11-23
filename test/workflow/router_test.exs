@@ -1051,15 +1051,23 @@ defmodule Workflow.RouterTest do
       %{
         "kind" => "story",
         "id" => id,
+        "story_id" => "k3f9a2qw",
         "title" => "Invite a teammate",
         "workflow" => "team-setup",
         "story" => "As an account owner I want to invite a teammate.",
         "rules" => [
           %{
+            "id" => "7hd2k3pz",
             "rule" => "Only an owner may invite.",
             "scenarios" => [
-              %{"happy" => "An owner invites by email and the invite is sent."},
-              %{"fails" => "A member tries to invite and is told only owners can."}
+              %{
+                "id" => "x9m4c8tb",
+                "happy" => "An owner invites by email and the invite is sent."
+              },
+              %{
+                "id" => "r5w2n7qa",
+                "fails" => "A member tries to invite and is told only owners can."
+              }
             ]
           }
         ]

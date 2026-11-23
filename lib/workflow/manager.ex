@@ -319,7 +319,7 @@ defmodule Workflow.Manager do
 
   # What a work is handed in with: the old text and criteria (a journey's stages),
   # or a story's own shape.
-  @handed_in ~w(kind id text criteria stages title workflow story rules questions skills)
+  @handed_in ~w(kind id text criteria stages title workflow story_id story rules questions skills)
 
   defp hand_in(manager) do
     Alloy.Tool.inline(
@@ -384,7 +384,7 @@ defmodule Workflow.Manager do
                 Run.queue(work)
 
                 {:ok,
-                 "#{work["id"]}: story #{work["story_id"]} at #{work["story_at"]}, queued " <>
+                 "#{work["id"]}: story #{work["story_of"]} at #{work["story_at"]}, queued " <>
                    "behind #{work["behind"]}: it starts once #{work["behind"]} is done or " <>
                    "stopped, and builds the difference from #{work["story_from"]}."}
 
@@ -415,8 +415,13 @@ defmodule Workflow.Manager do
   # A story handed in by its id alone is built from its file as it is at a commit
   # of the main copy (fetched first): `at`, else the main copy's HEAD. That sha is
   # recorded on the work (`story_at`), and nothing of it is written or committed.
+  # One that carries its text gets the ids it lacks before it is recorded.
   defp by_id(%{"kind" => "story"} = work, manager, pin) do
-    if id_alone?(work), do: pinned(work, manager, pin), else: work
+    cond do
+      id_alone?(work) -> pinned(work, manager, pin)
+      shaped?(work) -> work |> Workflow.StoryFile.with_ids() |> ids_checked()
+      true -> work
+    end
   end
 
   # A journey too, its stages included; its recorded file is not written over by
@@ -455,6 +460,7 @@ defmodule Workflow.Manager do
     with :ok <- sha_shaped(pin["at"]),
          {:ok, sha} <- commit(repo, pin["at"]),
          {:ok, story, path} <- story_at(work, repo, sha),
+         %{} <- ids_checked(Map.put(story, "id", id)),
          :ok <- no_questions(story, id, sha, pin["go"]) do
       story
       |> Map.put("criteria", Workflow.StoryFile.criteria(story))
@@ -522,7 +528,7 @@ defmodule Workflow.Manager do
   # work and told the difference from that work's sha. With none in flight it is
   # started as before.
   defp behind(%{"id" => id, "story_at" => sha} = work, repo) do
-    works = Enum.filter(Run.story_works(), &((&1["story_id"] || &1["id"]) == id))
+    works = Enum.filter(Run.story_works(), &((&1["story_of"] || &1["id"]) == id))
     ahead = Enum.map(works, & &1["behind"])
 
     cond do
@@ -546,7 +552,7 @@ defmodule Workflow.Manager do
           {:queued,
            Map.merge(work, %{
              "id" => "#{id}-#{String.slice(sha, 0, 7)}",
-             "story_id" => id,
+             "story_of" => id,
              "behind" => last["id"],
              "story_from" => from,
              "story_diff" => from && Checkout.diff(repo, from, sha, work["story_path"])
@@ -554,6 +560,18 @@ defmodule Workflow.Manager do
         end
     end
   end
+
+  # A story in the story's shape (title, story, rules) has an id for itself, each
+  # rule and each scenario, none repeated; one handed in the old way (text and
+  # criteria) has no such parts.
+  defp ids_checked(work) do
+    case shaped?(work) && Workflow.StoryFile.ids_refused(work) do
+      "" <> refused -> {:refused, refused}
+      _ok -> work
+    end
+  end
+
+  defp shaped?(work), do: Enum.any?(["title", "story", "rules"], &Map.has_key?(work, &1))
 
   defp id_alone?(work),
     do: Map.keys(Map.take(work, @handed_in -- ["skills"])) |> Enum.sort() == ["id", "kind"]
@@ -616,20 +634,26 @@ defmodule Workflow.Manager do
       stages: %{type: "array", items: %{type: "string"}},
       title: %{type: "string"},
       workflow: %{type: "string"},
+      story_id: %{type: "string", description: "The story's own id; generated when absent"},
       story: %{type: "string"},
       rules: %{
         type: "array",
         items: %{
           type: "object",
           properties: %{
+            id: %{type: "string", description: "The rule's id; generated when absent"},
             rule: %{type: "string"},
             scenarios: %{
               type: "array",
               items: %{
                 type: "object",
-                properties: %{happy: %{type: "string"}, fails: %{type: "string"}},
+                properties: %{
+                  id: %{type: "string", description: "The scenario's id; generated when absent"},
+                  happy: %{type: "string"},
+                  fails: %{type: "string"}
+                },
                 minProperties: 1,
-                maxProperties: 1
+                maxProperties: 2
               }
             }
           },

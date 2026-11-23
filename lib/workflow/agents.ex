@@ -194,12 +194,19 @@ defmodule Workflow.Agents do
 
   # A story's or journey's own parts, so no agent goes to the story files for them.
   defp own(work) do
-    case work["stages"] || Workflow.StoryFile.criteria(work) do
+    # A story's criteria name their rule's and scenario's ids, so a test can name them.
+    case work["stages"] || Workflow.StoryFile.labelled(work) do
       [_ | _] = parts ->
         word = if work["stages"], do: "stages", else: "criteria"
 
+        story =
+          case work["story_id"] do
+            "" <> id when id != "" -> " (story #{id})"
+            _none -> ""
+          end
+
         lines = parts |> Enum.with_index(1) |> Enum.map(fn {part, n} -> "#{n}. #{part}" end)
-        Enum.join(["This work's own #{word}, and no other story's:" | lines], "\n")
+        Enum.join(["This work's own #{word}#{story}, and no other story's:" | lines], "\n")
 
       _none ->
         nil

@@ -102,7 +102,18 @@ defmodule Workflow.StoryFile do
     end
   end
 
-  defp read(yml), do: yml |> String.split("\n") |> read_fields(%{})
+  defp read(yml), do: yml |> String.split("\n") |> read_fields(%{}) |> own_id()
+
+  # A file in the story's shape (no `kind:`) holds the story's own id as `id:`;
+  # the work's id stays its file name, so the story's is kept as `story_id`.
+  defp own_id(%{"kind" => _kind} = fields), do: fields
+
+  defp own_id(fields) do
+    case Map.pop(fields, "id") do
+      {nil, fields} -> fields
+      {id, fields} -> Map.put(fields, "story_id", id)
+    end
+  end
 
   # Only the shape written here: top-level keys, each with its value on the line
   # or in the indented lines under it.
@@ -143,13 +154,33 @@ defmodule Workflow.StoryFile do
     body
     |> Enum.reduce([], fn line, rules ->
       cond do
-        match = Regex.run(~r/^  - rule: (.*)$/, line) ->
-          [%{"rule" => read_scalar(Enum.at(match, 1)), "scenarios" => []} | rules]
+        # A rule starts with its `rule:` or its `id:`; the other follows under it.
+        match = Regex.run(~r/^  - (rule|id): (.*)$/, line) ->
+          [_, key, value] = match
+          [%{"scenarios" => [], key => read_scalar(value)} | rules]
+
+        (match = Regex.run(~r/^    (rule|id): (.*)$/, line)) && rules != [] ->
+          [_, key, value] = match
+          [rule | others] = rules
+          [Map.put(rule, key, read_scalar(value)) | others]
 
         (match = Regex.run(~r/^      - (.*)$/, line)) && rules != [] ->
           [rule | others] = rules
           scenario = read_scenario(Enum.at(match, 1))
           [Map.update!(rule, "scenarios", &(&1 ++ [scenario])) | others]
+
+        # A scenario's other key (its id, or its happy or fails under its id).
+        (match = Regex.run(~r/^        ([A-Za-z_]+): (.*)$/, line)) && rules != [] ->
+          [_, key, value] = match
+          [rule | others] = rules
+
+          scenarios =
+            List.update_at(rule["scenarios"], -1, fn
+              %{} = scenario -> Map.put(scenario, key, read_scalar(value))
+              other -> other
+            end)
+
+          [Map.put(rule, "scenarios", scenarios) | others]
 
         true ->
           rules
@@ -192,8 +223,149 @@ defmodule Workflow.StoryFile do
 
   def criteria(work), do: work["criteria"]
 
+  @doc """
+  A story's criteria as `criteria/1` gives them, each followed by the ids of its
+  rule and scenario where the story has them, as `(rule <id>, scenario <id>)`.
+  """
+  @spec labelled(map()) :: list() | nil
+  def labelled(%{"rules" => rules} = work) when is_list(rules) do
+    criteria = criteria(work)
+
+    named =
+      for rule <- rules,
+          scenario <- List.wrap(get(rule, "scenarios")),
+          do: [{"rule", get(rule, "id")}, {"scenario", get(scenario, "id")}]
+
+    if is_list(criteria) and length(criteria) == length(named) do
+      Enum.zip_with(criteria, named, fn criterion, ids ->
+        case for({what, "" <> id} <- ids, id != "", do: "#{what} #{id}") do
+          [] -> criterion
+          said -> "#{criterion} (#{Enum.join(said, ", ")})"
+        end
+      end)
+    else
+      criteria
+    end
+  end
+
+  def labelled(work), do: criteria(work)
+
+  @alphabet ~c"23456789abcdefghjkmnpqrstuvwxyz"
+
+  @doc "A new id: 8 random characters from #{@alphabet}, none of those `taken`."
+  @spec new_id(Enumerable.t()) :: String.t()
+  def new_id(taken \\ []) do
+    id = for _ <- 1..8, into: "", do: <<Enum.random(@alphabet)>>
+    if id in taken, do: new_id(taken), else: id
+  end
+
+  @doc """
+  The story with an id generated for itself (`story_id`), each rule and each
+  scenario that has none, unique within the story; the ids it was given are kept.
+  """
+  @spec with_ids(map()) :: map()
+  def with_ids(story) do
+    {story_id, taken} = given_or_new(story["story_id"], MapSet.new(ids(story)))
+    story = Map.put(story, "story_id", story_id)
+
+    case story["rules"] do
+      rules when is_list(rules) ->
+        {rules, _taken} = Enum.map_reduce(rules, taken, &rule_with_ids/2)
+        Map.put(story, "rules", rules)
+
+      _none ->
+        story
+    end
+  end
+
+  defp rule_with_ids(%{} = rule, taken) do
+    {id, taken} = given_or_new(rule["id"], taken)
+
+    {scenarios, taken} =
+      Enum.map_reduce(List.wrap(rule["scenarios"]), taken, fn
+        %{} = scenario, taken ->
+          {id, taken} = given_or_new(scenario["id"], taken)
+          {Map.put(scenario, "id", id), taken}
+
+        other, taken ->
+          {other, taken}
+      end)
+
+    {rule |> Map.put("id", id) |> Map.put("scenarios", scenarios), taken}
+  end
+
+  defp rule_with_ids(other, taken), do: {other, taken}
+
+  defp given_or_new("" <> id, taken) when id != "", do: {id, taken}
+
+  defp given_or_new(_none, taken) do
+    id = new_id(taken)
+    {id, MapSet.put(taken, id)}
+  end
+
+  # Every id the story holds, in order: its own, then each rule's and its scenarios'.
+  defp ids(story) do
+    rules = List.wrap(story["rules"])
+
+    [story["story_id"]]
+    |> Enum.concat(
+      Enum.flat_map(rules, fn rule ->
+        [get(rule, "id") | Enum.map(List.wrap(get(rule, "scenarios")), &get(&1, "id"))]
+      end)
+    )
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+  end
+
+  @doc """
+  Why a story in the story's shape cannot be handed in for its ids: the refusal
+  naming each part (the story, a rule or a scenario, by position and text) with
+  no id and each id that repeats; nil when every part has an id of its own.
+  """
+  @spec ids_refused(map()) :: String.t() | nil
+  def ids_refused(story) do
+    rules = List.wrap(story["rules"])
+
+    in_rules =
+      for {rule, r} <- Enum.with_index(rules, 1) do
+        scenarios =
+          for {scenario, s} <- Enum.with_index(List.wrap(get(rule, "scenarios")), 1),
+              blank?(get(scenario, "id")),
+              do: "scenario #{s} of rule #{r} (#{inspect(scenario_text(scenario))})"
+
+        [blank?(get(rule, "id")) && "rule #{r} (#{inspect(get(rule, "rule"))})", scenarios]
+      end
+
+    missing =
+      [blank?(story["story_id"]) && "the story", in_rules]
+      |> List.flatten()
+      |> Enum.filter(&is_binary/1)
+
+    repeated =
+      for {id, n} <- Enum.frequencies(ids(story)), n > 1, do: "#{id} (#{n} times)"
+
+    said =
+      Enum.reject(
+        [
+          missing != [] && "these have no id: #{Enum.join(missing, "; ")}",
+          repeated != [] && "these ids repeat: #{Enum.join(Enum.sort(repeated), ", ")}"
+        ],
+        &(&1 == false)
+      )
+
+    if said != [] do
+      "Refused: story #{story["id"]} cannot be handed in, #{Enum.join(said, "; and ")}. " <>
+        "The story, each rule and each scenario needs an id of its own (`id:`), 8 " <>
+        "characters from #{@alphabet}. Nothing was started."
+    end
+  end
+
+  defp blank?(id), do: not is_binary(id) or id == ""
+
+  defp get(%{} = map, key), do: map[key]
+  defp get(_other, _key), do: nil
+
   defp scenario_text(scenario) when is_map(scenario) do
-    scenario |> Map.values() |> Enum.map(&to_string/1) |> Enum.join(" ")
+    scenario |> Map.delete("id") |> Map.values() |> Enum.map(&to_string/1) |> Enum.join(" ")
   end
 
   defp scenario_text(scenario), do: to_string(scenario)
@@ -203,6 +375,7 @@ defmodule Workflow.StoryFile do
   def yaml(%{"kind" => "story"} = work)
       when is_map_key(work, "rules") or is_map_key(work, "story") or is_map_key(work, "title") do
     IO.iodata_to_binary([
+      id_line("", work["story_id"]),
       field(work, "title", &[" ", plain(&1), "\n"]),
       field(work, "workflow", &[" ", plain(&1), "\n"]),
       field(work, "story", &folded/1),
@@ -254,6 +427,7 @@ defmodule Workflow.StoryFile do
           "  - rule: ",
           plain(rule["rule"]),
           "\n",
+          id_line("    ", rule["id"]),
           case List.wrap(rule["scenarios"]) do
             [] ->
               []
@@ -268,11 +442,29 @@ defmodule Workflow.StoryFile do
 
   defp rules(other), do: [" ", scalar(other), "\n"]
 
+  defp scenario(%{"id" => id} = scenario) do
+    case Enum.to_list(Map.delete(scenario, "id")) do
+      [{kind, text} | more] ->
+        [
+          ["      - ", plain(kind), ": ", plain(text), "\n"],
+          Enum.map(more, fn {kind, text} -> ["        ", plain(kind), ": ", plain(text), "\n"] end),
+          id_line("        ", id)
+        ]
+
+      [] ->
+        ["      - id: ", plain(id), "\n"]
+    end
+  end
+
   defp scenario(scenario) when is_map(scenario) do
     Enum.map(scenario, fn {kind, text} -> ["      - ", plain(kind), ": ", plain(text), "\n"] end)
   end
 
   defp scenario(text), do: ["      - ", plain(text), "\n"]
+
+  # A story's, rule's or scenario's `id:` line, where it has one.
+  defp id_line(indent, "" <> id) when id != "", do: [indent, "id: ", plain(id), "\n"]
+  defp id_line(_indent, _none), do: []
 
   defp plain_list(items, indent) when is_list(items),
     do: ["\n", Enum.map(items, &[indent, "- ", plain(&1), "\n"])]
