@@ -45,6 +45,13 @@ defmodule Workflow.Manager do
   guess an answer. Hand in a story that still has open questions only when the person says to \
   go ahead anyway.
 
+  A story already in the repository (`.code_my_spec/stories/<id>.yml`, or `stories/<id>.yml` \
+  in an older project) is handed in by its id alone, with `at` the commit sha you are told \
+  ("hand in story <id> at <sha>"); with no sha, it is read at the main copy's HEAD. A story \
+  whose file at that commit has open questions is refused: add `go: true` only when the \
+  person explicitly said go despite them. Handing a story in again at a newer sha while it \
+  is in flight queues a work for the difference; the same sha again is refused.
+
   Hand in only what the person asks to have built.
 
   When a work is done, say so in one line. When a work waits on its owner, do not decide for \
@@ -239,7 +246,7 @@ defmodule Workflow.Manager do
           path =
             if kind == "issue",
               do: Workflow.StoryFile.issue_path(work),
-              else: Workflow.StoryFile.path(Map.put(work, "text", ""))
+              else: Workflow.StoryFile.path(Map.put(work, "text", ""), repo)
 
           case Checkout.remove_files(repo, [path], "#{kind} #{id}: stopped, its file removed") do
             {:error, why} -> {:ok, "#{id}: stopped, but #{path} not removed: #{inspect(why)}"}
@@ -320,16 +327,31 @@ defmodule Workflow.Manager do
       description:
         "Hand a work in: an issue (with text) for a fault, a story for something new (with " <>
           "title, workflow, story, rules with their scenarios, and questions), a journey " <>
-          "(with stages).",
+          "(with stages). A story already in the repository is handed in by its id alone, " <>
+          "with `at` the commit to read it at.",
       input_schema: %{
         type: "object",
         properties:
-          Map.put(story_properties(), :skills, %{
-            type: "object",
-            description:
-              "More skill folders for this work only, by role (coder, reviewer, ...): " <>
-                "each a folder holding a SKILL.md, or a folder of such folders",
-            additionalProperties: %{type: "array", items: %{type: "string"}}
+          Map.merge(story_properties(), %{
+            skills: %{
+              type: "object",
+              description:
+                "More skill folders for this work only, by role (coder, reviewer, ...): " <>
+                  "each a folder holding a SKILL.md, or a folder of such folders",
+              additionalProperties: %{type: "array", items: %{type: "string"}}
+            },
+            at: %{
+              type: "string",
+              description:
+                "A story handed in by its id alone: the commit sha its file is read at " <>
+                  "(default: the main copy's HEAD)"
+            },
+            go: %{
+              type: "boolean",
+              description:
+                "A story handed in by its id alone: true when the person said go despite " <>
+                  "its open questions"
+            }
           }),
         required: ["kind", "id"]
       },
@@ -354,9 +376,17 @@ defmodule Workflow.Manager do
           true ->
             work = input |> Map.take(@handed_in) |> Map.merge(configured_for(manager))
 
-            case by_id(work, manager) do
+            case by_id(work, manager, Map.take(input, ["at", "go"])) do
               {:refused, said} ->
                 {:ok, said}
+
+              {:queued, work} ->
+                Run.queue(work)
+
+                {:ok,
+                 "#{work["id"]}: story #{work["story_of"]} at #{work["story_at"]}, queued " <>
+                   "behind #{work["behind"]}: it starts once #{work["behind"]} is done or " <>
+                   "stopped, and builds the difference from #{work["story_from"]}."}
 
               work ->
                 case issue_recorded(work, manager) do
@@ -382,35 +412,25 @@ defmodule Workflow.Manager do
   defp skills_refused(other, _manager),
     do: {:error, "skills must be a map of role to folders, not #{inspect(other)}"}
 
-  # A story handed in by its id alone is built from what was recorded for it in
-  # the main copy: unchanged, its file makes no second commit in the work.
-  defp by_id(%{"kind" => "story"} = work, manager) do
-    if id_alone?(work) do
-      case Workflow.StoryFile.recorded(work, manager["repo"]) do
-        {:ok, recorded} ->
-          recorded
-          |> Map.put("criteria", Workflow.StoryFile.criteria(recorded))
-          |> Map.merge(work)
-          |> ids_checked()
-
-        {:none, path} ->
-          {:refused,
-           "Refused: no story #{work["id"]} is recorded (there is no #{path} in the main " <>
-             "copy). Hand it in whole."}
-      end
-    else
-      # One that carries its text gets the ids it lacks before it is recorded.
-      if shaped?(work), do: work |> Workflow.StoryFile.with_ids() |> ids_checked(), else: work
+  # A story handed in by its id alone is built from its file as it is at a commit
+  # of the main copy (fetched first): `at`, else the main copy's HEAD. That sha is
+  # recorded on the work (`story_at`), and nothing of it is written or committed.
+  # One that carries its text gets the ids it lacks before it is recorded.
+  defp by_id(%{"kind" => "story"} = work, manager, pin) do
+    cond do
+      id_alone?(work) -> pinned(work, manager, pin)
+      shaped?(work) -> work |> Workflow.StoryFile.with_ids() |> ids_checked()
+      true -> work
     end
   end
 
   # A journey too, its stages included; its recorded file is not written over by
   # one handed in with fields, and one handed in whole needs stages.
-  defp by_id(%{"kind" => "journey", "id" => id} = work, manager) do
+  defp by_id(%{"kind" => "journey", "id" => id} = work, manager, _pin) do
     recorded =
       if is_binary(manager["repo"]),
         do: Workflow.StoryFile.recorded(work, manager["repo"]),
-        else: {:none, "stories/#{id}.yml"}
+        else: {:none, Workflow.StoryFile.located(work, nil)}
 
     case {id_alone?(work), recorded} do
       {true, {:ok, journey}} ->
@@ -432,7 +452,114 @@ defmodule Workflow.Manager do
     end
   end
 
-  defp by_id(work, _manager), do: work
+  defp by_id(work, _manager, _pin), do: work
+
+  defp pinned(%{"id" => id} = work, manager, pin) do
+    repo = manager["repo"]
+
+    with :ok <- sha_shaped(pin["at"]),
+         {:ok, sha} <- commit(repo, pin["at"]),
+         {:ok, story, path} <- story_at(work, repo, sha),
+         %{} <- ids_checked(Map.put(story, "id", id)),
+         :ok <- no_questions(story, id, sha, pin["go"]) do
+      story
+      |> Map.put("criteria", Workflow.StoryFile.criteria(story))
+      |> Map.merge(work)
+      |> Map.merge(%{"recorded" => true, "story_at" => sha, "story_path" => path})
+      |> behind(repo)
+    end
+  end
+
+  defp sha_shaped(nil), do: :ok
+
+  defp sha_shaped(at) do
+    if is_binary(at) and at =~ ~r/\A[0-9a-fA-F]{4,40}\z/,
+      do: :ok,
+      else: {:refused, "Refused: at #{inspect(at)} is not a commit sha. Nothing was started."}
+  end
+
+  defp commit(repo, at) do
+    case Checkout.pinned(repo, at) do
+      {:ok, sha} ->
+        {:ok, sha}
+
+      :none when is_binary(at) ->
+        {:refused,
+         "Refused: there is no commit #{at} in the main copy, fetched just now. " <>
+           "Nothing was started."}
+
+      :none ->
+        {:refused,
+         "Refused: #{inspect(repo)} has no commit at its HEAD, so no story is recorded " <>
+           "there. Nothing was started."}
+    end
+  end
+
+  defp story_at(%{"id" => id} = work, repo, sha) do
+    case Workflow.StoryFile.at(work, repo, sha) do
+      {:ok, story, path} ->
+        {:ok, story, path}
+
+      {:none, paths} ->
+        {:refused,
+         "Refused: no story #{id} is recorded at commit #{sha}: neither " <>
+           Enum.join(paths, " nor ") <>
+           " is in the main copy at that commit. Commit it first, or hand it in whole. " <>
+           "Nothing was started."}
+    end
+  end
+
+  defp no_questions(story, id, sha, go) do
+    case story["questions"] |> List.wrap() |> Enum.reject(&(&1 in [nil, ""])) do
+      open when open == [] or go == true ->
+        :ok
+
+      open ->
+        {:refused,
+         "Refused: story #{id} at #{sha} has open questions: " <>
+           Enum.join(open, "; ") <>
+           ". Settle them in the story file, or hand it in with go: true when the person " <>
+           "said to go ahead despite them. Nothing was started."}
+    end
+  end
+
+  # A story in flight already, or queued, at that sha is a duplicate. At a newer
+  # sha it is a new work, `<story>-<short sha>`, queued behind the story's last
+  # work and told the difference from that work's sha. With none in flight it is
+  # started as before.
+  defp behind(%{"id" => id, "story_at" => sha} = work, repo) do
+    works = Enum.filter(Run.story_works(), &((&1["story_of"] || &1["id"]) == id))
+    ahead = Enum.map(works, & &1["behind"])
+
+    cond do
+      same = Enum.find(works, &(&1["story_at"] == sha)) ->
+        {:refused,
+         "Refused: story #{id} at #{sha} is already handed in, as #{same["id"]}: a " <>
+           "duplicate. Nothing was started."}
+
+      works == [] ->
+        work
+
+      true ->
+        last = Enum.find(works, List.last(works), &(&1["id"] not in ahead))
+        from = last["story_at"]
+
+        if is_binary(from) and not Checkout.before?(repo, from, sha) do
+          {:refused,
+           "Refused: story #{id} is in flight at #{from}, and #{sha} is not newer. " <>
+             "Nothing was started."}
+        else
+          {:queued,
+           Map.merge(work, %{
+             "id" => "#{id}-#{String.slice(sha, 0, 7)}",
+             "story_of" => id,
+             "behind" => last["id"],
+             "story_from" => from,
+             "story_diff" => from && Checkout.diff(repo, from, sha, work["story_path"])
+           })}
+        end
+    end
+  end
 
   # A story in the story's shape (title, story, rules) has an id for itself, each
   # rule and each scenario, none repeated; one handed in the old way (text and

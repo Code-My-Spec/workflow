@@ -132,6 +132,26 @@ defmodule Workflow.StoryIdsTest do
     nothing_started(repo, "s1")
   end
 
+  test "story-ids-are-required: criterion 1 - a story hand-in by id with `at` whose story at that commit lacks ids is refused with the same wording, though HEAD has them",
+       %{tmp_dir: dir} do
+    {repo, hand_in} = hand_in!(dir)
+
+    record!(repo, "s1", story(Keyword.drop(@all, [:rule])))
+    old = repo |> git!(~w(rev-parse HEAD)) |> String.trim()
+    record!(repo, "s1", story(@all))
+
+    assert {:ok, refused} =
+             hand_in.execute.(%{"kind" => "story", "id" => "s1", "at" => old}, %{})
+
+    assert refused ==
+             "Refused: story s1 cannot be handed in, these have no id: " <>
+               "rule 1 (\"Only an owner may invite.\"). " <>
+               "The story, each rule and each scenario needs an id of its own (`id:`), 8 " <>
+               "characters from #{@alphabet}. Nothing was started."
+
+    nothing_started(repo, "s1")
+  end
+
   test "story-ids-are-required: criterion 2 - a story hand-in whose ids repeat within the story is refused, naming each repeated id",
        %{tmp_dir: dir} do
     {repo, hand_in} = hand_in!(dir)

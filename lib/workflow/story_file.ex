@@ -1,7 +1,8 @@
 defmodule Workflow.StoryFile do
   @moduledoc """
-  A story or journey handed in, kept in the repository as `stories/<id>.yml`
-  (inside the work's project directory when it names one), so it merges with
+  A story or journey handed in, kept in the repository as
+  `.code_my_spec/stories/<id>.yml`, or `stories/<id>.yml` in a project that has
+  no file there (inside the work's project directory when it names one), so it merges with
   the code that meets it. An issue handed in is kept as `issues/<id>.yml` in the
   main copy (see `issue_path/1`).
 
@@ -15,9 +16,15 @@ defmodule Workflow.StoryFile do
 
   @shape ["title", "workflow", "story", "rules", "questions"]
 
-  @doc "Where the work's file goes, relative to its checkout, or nil for a work that gets none."
-  @spec path(map()) :: String.t() | nil
-  def path(%{"kind" => kind, "id" => id} = work) when kind in ["story", "journey"] do
+  @doc """
+  Where the work's file goes, relative to its checkout, or nil for a work that
+  gets none: `.code_my_spec/stories/<id>.yml` where that file is in `root`, else
+  `stories/<id>.yml` (see `located/2`).
+  """
+  @spec path(map(), String.t() | nil) :: String.t() | nil
+  def path(work, root \\ nil)
+
+  def path(%{"kind" => kind} = work, root) when kind in ["story", "journey"] do
     # Only a work handed in with what it says. One handed in again with a review or
     # an owner's decision is not: its file would be written over with whatever came
     # with the decision, and committed on top of a tree already reviewed.
@@ -26,11 +33,48 @@ defmodule Workflow.StoryFile do
       # Built from its file recorded in the main copy: that file is the work's already.
       work["recorded"] == true -> nil
       not Enum.any?(["text", "criteria", "stages" | @shape], &Map.has_key?(work, &1)) -> nil
-      true -> in_project(work, "stories", id)
+      true -> located(work, root)
     end
   end
 
-  def path(_work), do: nil
+  def path(_work, _root), do: nil
+
+  @doc """
+  Where a story's or journey's file may be, relative to its checkout, in the
+  order they are read: its project's `.code_my_spec/stories/<id>.yml`, then the
+  older `stories/<id>.yml`.
+  """
+  @spec paths(map()) :: [String.t()]
+  def paths(%{"id" => id} = work),
+    do: [in_project(work, ".code_my_spec/stories", id), in_project(work, "stories", id)]
+
+  @doc """
+  The work's story file in `root`: `.code_my_spec/stories/<id>.yml` where it
+  exists, else `stories/<id>.yml` (an older project's, or where none exists yet).
+  """
+  @spec located(map(), String.t() | nil) :: String.t()
+  def located(work, root) do
+    [new, old] = paths(work)
+    if is_binary(root) and File.exists?(Path.join(root, new)), do: new, else: old
+  end
+
+  @doc """
+  The story recorded for the work's id at the commit `sha` of `repo`'s main copy
+  (`git show <sha>:<path>`), read at the first of `paths/1` there:
+  `{:ok, fields, path}`, or `{:none, paths}` when neither is at that commit.
+  """
+  @spec at(map(), String.t(), String.t()) ::
+          {:ok, map(), String.t()} | {:none, [String.t()]}
+  def at(work, repo, sha) do
+    paths = paths(work)
+
+    Enum.find_value(paths, {:none, paths}, fn path ->
+      case Workflow.Checkout.show(repo, sha, path) do
+        {:ok, yml} -> {:ok, read(yml), path}
+        _none -> nil
+      end
+    end)
+  end
 
   @doc "Where an issue handed in is kept in the main copy: its project's `issues/<id>.yml`."
   @spec issue_path(map()) :: String.t()
@@ -45,18 +89,20 @@ defmodule Workflow.StoryFile do
 
   @doc """
   The story recorded for the work's id in `root` (its project's
-  `stories/<id>.yml`), read back into the fields `yaml/1` writes in a story's
-  shape; `{:none, path}` when there is no such file.
+  `.code_my_spec/stories/<id>.yml`, else `stories/<id>.yml`), read back into the
+  fields `yaml/1` writes in a story's shape; `{:none, path}` when there is no such file.
   """
   @spec recorded(map(), String.t()) :: {:ok, map()} | {:none, String.t()}
-  def recorded(%{"id" => id} = work, root) do
-    path = in_project(work, "stories", id)
+  def recorded(work, root) do
+    path = located(work, root)
 
     case File.read(Path.join(root, path)) do
-      {:ok, yml} -> {:ok, yml |> String.split("\n") |> read_fields(%{}) |> own_id()}
+      {:ok, yml} -> {:ok, read(yml)}
       {:error, _none} -> {:none, path}
     end
   end
+
+  defp read(yml), do: yml |> String.split("\n") |> read_fields(%{}) |> own_id()
 
   # A file in the story's shape (no `kind:`) holds the story's own id as `id:`;
   # the work's id stays its file name, so the story's is kept as `story_id`.

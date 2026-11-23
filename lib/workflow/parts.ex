@@ -12,13 +12,15 @@ defmodule Workflow.Parts do
   differ.
   """
 
-  # Seen live: the other story files in the checkout (stories/*.yml) are readable,
-  # and a coder built, and a reviewer judged by, a neighbouring story's criteria.
+  # Seen live: the other story files in the checkout (.code_my_spec/stories/*.yml,
+  # or stories/*.yml in an older project) are readable, and a coder built, and a
+  # reviewer judged by, a neighbouring story's criteria.
   defp own(noun),
     do:
       "Your work is this #{noun}'s criteria, as your first message gives them, and nothing " <>
-        "from another story file: the other `stories/*.yml` in the checkout are other works', " <>
-        "not yours to build or judge by.\n\n"
+        "from another story file: the other `.code_my_spec/stories/*.yml` and " <>
+        "`stories/*.yml` in the checkout are other works', not yours to build or judge by. " <>
+        "Never change a story file, this #{noun}'s included.\n\n"
 
   def qa(word, noun) do
     %{

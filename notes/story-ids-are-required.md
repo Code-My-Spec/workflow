@@ -1,21 +1,29 @@
 # story-ids-are-required
 
 Stories, their rules and their scenarios carry ids; a story hand-in requires
-them. Built on main as it stands: story-hand-in-pins-a-commit has not landed
-(no `at` field exists yet), so "by id" here is the manager's hand-in of a story
-by its id alone. When `at` lands, its by-id path should keep calling the same
-check (`Workflow.StoryFile.ids_refused/1`) on the story read at that commit.
+them. Built on main with story-hand-in-pins-a-commit merged: a story handed in
+by its id alone, with `at` or without it (the main copy's HEAD), is read at
+that commit (`.code_my_spec/stories/<id>.yml` first, else `stories/<id>.yml`)
+and checked there, in the manager's `pinned/3`, before its open questions and
+before it is queued or started.
+
+One rename in the merged code: main's queued work (`<story>-<short sha>`)
+kept its story's handle under `story_id`, which this work gives the story's own
+id. That internal key is now `story_of`; the answer and the duplicate check
+read it. Nothing on the hand_in tool changed for it.
 
 ## Where it lives
 
-- Parsed: `Workflow.StoryFile.recorded/2` (top-level `id:` of a story-shaped
-  file, one with no `kind:`, becomes `story_id`; `read_rules/1` reads a rule's
+- Parsed: `Workflow.StoryFile.read/1`, behind both `recorded/2` and `at/3` (a
+  story at a commit), whichever of the two paths it is at (top-level `id:` of a
+  story-shaped file, one with no `kind:`, becomes `story_id`; `read_rules/1` reads a rule's
   and a scenario's `id:` whether it comes first or after `rule:` / `happy:` /
   `fails:`).
-- Validated: `Workflow.StoryFile.ids_refused/1`, called by the manager's
-  `by_id/2` for a story (`ids_checked/1`).
+- Validated: `Workflow.StoryFile.ids_refused/1`, through the manager's
+  `ids_checked/1`: in `pinned/3` for a story by id (with or without `at`), and
+  in `by_id/3` for one that carries its text, after its ids are generated.
 - Generated: `Workflow.StoryFile.with_ids/1` (and `new_id/1`), called by
-  `by_id/2` for a story that carries its text, before `started/1` records it.
+  `by_id/3` for a story that carries its text, before `started/1` records it.
 - Recorded: `Workflow.StoryFile.yaml/1` writes the ids.
 - Briefs: `Workflow.Agents.own/1` lists `Workflow.StoryFile.labelled/1`.
 
@@ -26,7 +34,8 @@ scenarios and is not. Reading (status, listing, look, `recorded/2`,
 
 ## Story fields as built
 
-In the file (`stories/<id>.yml`, the file name still the human handle):
+In the file (`.code_my_spec/stories/<id>.yml`, or `stories/<id>.yml` in an
+older project; the file name still the human handle):
 
     id: k3f9a2qw
     title: ...
@@ -88,8 +97,11 @@ A story without ids is listed exactly as before.
 
 ## Tests
 
-`test/workflow/story_ids_test.exs`, one per criterion, in temporary git repos
-with a fake agent. Criteria 1 to 4 fail with the lib changes reverted; criterion
-5 (id-less files still read) passes either way, as it guards against a check
-being put on the read path. Fixtures that hand in stories in
-`manager_test.exs` and `router_test.exs` gained ids, nothing else.
+`test/workflow/story_ids_test.exs`, in temporary git repos with a fake agent:
+one test per criterion, and a second for criterion 1 handing in with `at` an
+older sha whose story lacks a rule id while HEAD has it (it fails with the
+check in `pinned/3` removed). Criteria 1 to 4 fail with the lib changes
+reverted; criterion 5 (id-less files still read) passes either way, as it
+guards against a check being put on the read path. Fixtures that hand in
+stories in `manager_test.exs`, `router_test.exs` and
+`story_hand_in_pins_a_commit_test.exs` gained ids, nothing else.
