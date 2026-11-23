@@ -61,11 +61,23 @@ defmodule Workflow.Parts do
     }
   end
 
+  # Seen live: a journey handed in again without its stages had none in its
+  # snapshot, and `next_unnamed/2` crashed the loop with `length(nil)`, and every
+  # look at it too. A work with no parts is stopped, saying so, at its first step;
+  # an empty list once a part is named is left to walk on (see story_test).
+  def status(step, snapshot, word, key, noun) do
+    case {Map.get(snapshot, key), snapshot[:named]} do
+      {[_ | _], _named} -> status!(step, snapshot, word, key, noun)
+      {[], [_ | _]} -> status!(step, snapshot, word, key, noun)
+      _none -> %{note: "this #{noun} has no #{key}; hand it in again with its #{key}", stop: true}
+    end
+  end
+
   # Nothing is named yet: send qa after the first part.
-  def status(%{name: "specify"}, %{named: []} = snapshot, word, key, _noun),
+  defp status!(%{name: "specify"}, %{named: []} = snapshot, word, key, _noun),
     do: specify_note(1, snapshot, word, key)
 
-  def status(%{name: "specify"}, snapshot, word, key, _noun) do
+  defp status!(%{name: "specify"}, snapshot, word, key, _noun) do
     case run(snapshot) do
       %{"status" => "passed"} ->
         # Fresh off specify and already green: the new test asserts nothing new,
@@ -110,18 +122,18 @@ defmodule Workflow.Parts do
     end
   end
 
-  def status(%{name: "run"}, snapshot, _word, _key, _noun) do
+  defp status!(%{name: "run"}, snapshot, _word, _key, _noun) do
     if run(snapshot), do: :done, else: %{}
   end
 
-  def status(%{name: "work"}, snapshot, _word, _key, _noun) do
+  defp status!(%{name: "work"}, snapshot, _word, _key, _noun) do
     case run(snapshot) do
       %{"status" => "failed", "note" => note} -> %{note: note}
       _passed_or_absent -> :done
     end
   end
 
-  def status(%{name: "certify"}, snapshot, _word, _key, _noun) do
+  defp status!(%{name: "certify"}, snapshot, _word, _key, _noun) do
     case found(snapshot, "certify") do
       %{"status" => "passed"} -> :done
       %{"status" => "failed", "note" => note} -> {:to, "work", %{note: note}}
@@ -129,7 +141,7 @@ defmodule Workflow.Parts do
     end
   end
 
-  def status(%{name: "review"}, snapshot, _word, _key, noun) do
+  defp status!(%{name: "review"}, snapshot, _word, _key, noun) do
     case found(snapshot, "review") do
       %{"status" => "pass"} ->
         :done
@@ -142,7 +154,7 @@ defmodule Workflow.Parts do
     end
   end
 
-  def status(%{name: "promote"}, snapshot, _word, _key, _noun) do
+  defp status!(%{name: "promote"}, snapshot, _word, _key, _noun) do
     case found(snapshot, "promote") do
       %{"status" => "promoted"} -> :done
       %{"status" => "refused", "note" => note} -> {:to, "work", %{note: note}}

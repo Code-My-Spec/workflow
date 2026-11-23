@@ -419,8 +419,8 @@ defmodule Workflow.Manager do
   defp by_id(%{"kind" => "story"} = work, manager, pin) do
     cond do
       id_alone?(work) -> pinned(work, manager, pin)
-      shaped?(work) -> work |> Workflow.StoryFile.with_ids() |> ids_checked()
-      true -> work
+      shaped?(work) -> work |> Workflow.StoryFile.with_ids() |> ids_checked() |> with_criteria()
+      true -> with_criteria(work)
     end
   end
 
@@ -461,12 +461,14 @@ defmodule Workflow.Manager do
          {:ok, sha} <- commit(repo, pin["at"]),
          {:ok, story, path} <- story_at(work, repo, sha),
          %{} <- ids_checked(Map.put(story, "id", id)),
-         :ok <- no_questions(story, id, sha, pin["go"]) do
-      story
-      |> Map.put("criteria", Workflow.StoryFile.criteria(story))
-      |> Map.merge(work)
-      |> Map.merge(%{"recorded" => true, "story_at" => sha, "story_path" => path})
-      |> behind(repo)
+         :ok <- no_questions(story, id, sha, pin["go"]),
+         %{} = work <-
+           story
+           |> Map.put("criteria", Workflow.StoryFile.criteria(story))
+           |> Map.merge(work)
+           |> Map.merge(%{"recorded" => true, "story_at" => sha, "story_path" => path})
+           |> with_criteria() do
+      behind(work, repo)
     end
   end
 
@@ -583,6 +585,22 @@ defmodule Workflow.Manager do
       {:refused,
        "Refused: journey #{work["id"]} has no stages; a journey is handed in with its " <>
          "stages. Nothing was started."}
+
+  # A story is walked one criterion at a time (see `Workflow.Parts`): one with none,
+  # carried or read from its file, is refused, as a journey with no stages is.
+  defp with_criteria(%{} = work) do
+    case Workflow.StoryFile.criteria(work) do
+      [_ | _] ->
+        work
+
+      _none ->
+        {:refused,
+         "Refused: story #{work["id"]} has no criteria; a story is handed in with its " <>
+           "criteria (rules with their scenarios). Nothing was started."}
+    end
+  end
+
+  defp with_criteria(refused), do: refused
 
   # An issue handed in is kept in the main copy as issues/<id>.yml (its title,
   # text and criteria), committed as a recorded story is, before its work starts.
