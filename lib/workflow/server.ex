@@ -15,6 +15,12 @@ defmodule Workflow.Server do
   `"message"` (`text`) for the person's chat inbox, answered ok `id`
   (the manager's `message_chat`).
 
+  The join carries `harness_id` when `CMS_HARNESS_ID` is set. On Code My Spec's
+  own loop the server pushes `"start_support"` (`project_id`, `thread_id`,
+  `question`, `resume`): a support session answers it and the loop pushes
+  `"support_session"` (`thread_id`, `resume`). Support's answer comes to the
+  asking loop as `"wake"` (`text`), told the manager as a say is.
+
   Started only when `config.json` has a `"server"` object:
   `{"url": "wss://host/socket/websocket", "project_id": "..."}`, and optionally
   `"state_dir"` (default `$CMS_STATE_DIR`, else `~/.codemyspec`). The credential
@@ -75,7 +81,15 @@ defmodule Workflow.Server do
   end
 
   @impl Slipstream
-  def handle_connect(socket), do: {:ok, join(socket, socket.assigns.topic)}
+  def handle_connect(socket), do: {:ok, join(socket, socket.assigns.topic, harness())}
+
+  # The harness this loop runs on, as `CMS_HARNESS_ID` names it: none when unset.
+  defp harness do
+    case System.get_env("CMS_HARNESS_ID") do
+      "" <> id when id != "" -> %{"harness_id" => id}
+      _none -> %{}
+    end
+  end
 
   @impl Slipstream
   def handle_message(_topic, "say", %{"ref" => _, "text" => "" <> _} = say, socket) do
@@ -88,6 +102,28 @@ defmodule Workflow.Server do
   def handle_message(_topic, "event", %{"work" => "" <> id, "name" => "" <> name} = event, socket) do
     Logger.info("[Workflow.Server] event #{name} for #{id}")
     Task.start(fn -> Workflow.Run.event(id, name, event["payload"]) end)
+    {:ok, socket}
+  end
+
+  # A manager's question to support (on Code My Spec's own loop): a support
+  # session answers it (`Workflow.Agents.support/1`), and once it has a resume
+  # handle the server is told it. Not a work: no copy, works file or slot.
+  def handle_message(_topic, "start_support", %{"thread_id" => "" <> thread} = ask, socket) do
+    me = self()
+    Logger.info("[Workflow.Server] start_support #{thread}")
+
+    Task.start(fn ->
+      with "" <> resume <- Workflow.Agents.support(ask),
+           do: send(me, {:support_session, %{"thread_id" => thread, "resume" => resume}})
+    end)
+
+    {:ok, socket}
+  end
+
+  # Support's answer, told the manager as a say is.
+  def handle_message(_topic, "wake", %{"text" => "" <> text} = wake, socket) do
+    Logger.info("[Workflow.Server] wake from #{wake["from"]} on #{wake["thread_id"]}")
+    Task.start(fn -> answer(%{"ref" => wake["thread_id"], "text" => text}) end)
     {:ok, socket}
   end
 
@@ -112,6 +148,15 @@ defmodule Workflow.Server do
       {nil, _calls} ->
         {:ok, socket}
 
+      {{:support_session, thread}, calls} ->
+        with {:error, why} <- reply,
+             do:
+               Logger.warning(
+                 "[Workflow.Server] support_session #{thread} refused: #{inspect(why)}"
+               )
+
+        {:ok, assign(socket, :calls, calls)}
+
       {from, calls} ->
         GenServer.reply(from, reply)
         {:ok, assign(socket, :calls, calls)}
@@ -123,6 +168,19 @@ defmodule Workflow.Server do
     Logger.info("[Workflow.Server] said #{payload["ref"]}")
     push(socket, socket.assigns.topic, event, payload)
     {:noreply, assign(socket, :last_push, event)}
+  end
+
+  # Its reply is only logged when an error (`handle_reply/3`); the session goes on.
+  def handle_info({:support_session, %{"thread_id" => thread} = session}, socket) do
+    case push(socket, socket.assigns.topic, "support_session", session) do
+      {:ok, ref} ->
+        calls = Map.put(socket.assigns[:calls] || %{}, ref, {:support_session, thread})
+        {:noreply, assign(socket, calls: calls, last_push: "support_session")}
+
+      {:error, why} ->
+        Logger.warning("[Workflow.Server] support_session #{thread} not sent: #{inspect(why)}")
+        {:noreply, socket}
+    end
   end
 
   def handle_info({:push, event, payload}, socket) do
