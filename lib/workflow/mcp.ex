@@ -7,11 +7,22 @@ defmodule Workflow.Mcp do
   `mcp__<server>__<tool>`, as Claude Code names them. Calling one asks the
   server. A server that gives no tools is logged and left out; it never ends
   the turn.
+
+  Besides `${CLAUDE_PLUGIN_ROOT}`, an entry may name the loop's server:
+  `${WORKFLOW_SERVER_URL}` (its https base, no `/socket/websocket`),
+  `${WORKFLOW_PROJECT_ID}` and `${WORKFLOW_SERVER_TOKEN}` (a sign-in token,
+  fetched afresh for each session and never logged or kept). With no server
+  configured, an entry naming any of them is left out with a warning.
   """
 
   require Logger
 
   @timeout 120_000
+  @server_placeholders [
+    "${WORKFLOW_SERVER_URL}",
+    "${WORKFLOW_PROJECT_ID}",
+    "${WORKFLOW_SERVER_TOKEN}"
+  ]
 
   @doc "The tools of every MCP server in the plugin's `.mcp.json`; none without one."
   @spec tools() :: [Alloy.Tool.Inline.t()]
@@ -20,9 +31,50 @@ defmodule Workflow.Mcp do
          {:ok, text} <- File.read(path),
          text = String.replace(text, "${CLAUDE_PLUGIN_ROOT}", Workflow.Plugin.dir()),
          {:ok, %{"mcpServers" => %{} = servers}} <- Jason.decode(text) do
-      Enum.flat_map(servers, fn {name, server} -> tools(name, server) end)
+      Enum.flat_map(servers, fn {name, server} ->
+        if server?() or not String.contains?(Jason.encode!(server), @server_placeholders) do
+          tools(name, server)
+        else
+          Logger.warning(
+            "[Workflow] the MCP server #{name} names the loop's server, but none is configured; left out"
+          )
+
+          []
+        end
+      end)
     else
       _none -> []
+    end
+  end
+
+  defp server?, do: match?(%{"url" => "" <> _}, Application.get_env(:workflow, :server))
+
+  # The entry with the loop's server put in its placeholders, the token signed in
+  # now. Done for each session only, so the token is never kept in a tool.
+  defp resolved(server) do
+    text = Jason.encode!(server)
+
+    if server?() and String.contains?(text, @server_placeholders) do
+      config = Application.get_env(:workflow, :server)
+
+      values = %{
+        "${WORKFLOW_SERVER_URL}" => Workflow.SignIn.base(config["url"]),
+        "${WORKFLOW_PROJECT_ID}" => to_string(config["project_id"]),
+        "${WORKFLOW_SERVER_TOKEN}" =>
+          if(String.contains?(text, "${WORKFLOW_SERVER_TOKEN}"),
+            do: Workflow.SignIn.token(config) || "",
+            else: ""
+          )
+      }
+
+      text
+      |> String.replace(@server_placeholders, fn placeholder ->
+        # Put in as JSON string content, so no value can break the entry.
+        values[placeholder] |> Jason.encode!() |> String.slice(1..-2//1)
+      end)
+      |> Jason.decode!()
+    else
+      server
     end
   end
 
@@ -73,7 +125,9 @@ defmodule Workflow.Mcp do
   @initialized %{jsonrpc: "2.0", method: "notifications/initialized"}
 
   # One request in its own session: initialize, then the request, its answer.
-  defp session(%{"url" => url} = server, request) do
+  defp session(server, request), do: open(resolved(server), request)
+
+  defp open(%{"url" => url} = server, request) do
     headers =
       Map.merge(%{"accept" => "application/json, text/event-stream"}, server["headers"] || %{})
 
@@ -85,7 +139,7 @@ defmodule Workflow.Mcp do
     end
   end
 
-  defp session(%{"command" => command} = server, request) do
+  defp open(%{"command" => command} = server, request) do
     env = for {key, value} <- server["env"] || %{}, do: {~c"#{key}", ~c"#{value}"}
     options = [:binary, :exit_status, {:line, 1_000_000}, args: server["args"] || [], env: env]
     port = Port.open({:spawn_executable, System.find_executable(command) || command}, options)
@@ -106,7 +160,7 @@ defmodule Workflow.Mcp do
     error -> {:error, Exception.message(error)}
   end
 
-  defp session(_server, _request), do: {:error, "names neither a command nor a url"}
+  defp open(_server, _request), do: {:error, "names neither a command nor a url"}
 
   defp post(url, headers, body) do
     case Req.post(url,
