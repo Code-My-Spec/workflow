@@ -1,0 +1,24 @@
+id: "a-journey-without-stages-stops-not-crashes"
+kind: "issue"
+title: A journey with no stages crashes the loop and every look at it
+text: |-
+  Fault (seen live in the Smart AI Books loop): journey 1fbd8e34-af4d-4391-af91-2854ede435f7 crashed the loop in Workflow.Parts.next_unnamed/2 (lib/workflow/parts.ex:222-225) with `length(nil)`, because the work's snapshot had no `:stages`. The journey had been handed in again without them. Every `look` at it crashed too, so its manager could neither see it nor stop it.
+
+  Wanted, as the smallest change that fixes it, with no new options:
+  1. A hand-in refuses a journey with no stages (missing or empty) and a story with no criteria (missing or empty, wherever the story's criteria come from: carried rules/scenarios or the story file read by id or at a sha). The refusal names what is missing and ends "Nothing was started.", like the other hand-in refusals. Nothing is recorded, committed or started.
+  2. A work already in flight whose stages or criteria list is missing or empty does not crash. Run stops it with the note "this journey has no stages; hand it in again with its stages" (for a story: the matching note about its criteria). `look` at it answers without crashing and shows that stopped state and the note, so the manager can see it and stop it.
+
+  Confirm the defect in the code first: name in the decision note every place that assumes stages or criteria are a list (next_unnamed/2 and any other `length`, `Enum` or pattern on them in parts.ex, run.ex, the manager's look). Grep every caller of what you change.
+
+  Check: tests in temporary git repos and works dirs with a fake agent, never the real ~/.workflow or .git/workflow, each failing when its code is removed:
+  - a journey hand-in with no stages is refused naming them, and a story hand-in with no criteria is refused naming them;
+  - a work in flight whose snapshot has no :stages (written into its works file as the live one was) is stopped with the note above when it runs or resumes, with no crash;
+  - `look` at that work returns its stopped state and note.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A journey hand-in with no stages (missing or empty) is refused with an answer naming the missing stages, and nothing is started or recorded"
+  - "A story hand-in with no criteria (missing or empty) is refused with an answer naming the missing criteria, and nothing is started or recorded"
+  - "A work already in flight whose stages or criteria list is missing or empty does not crash the loop: it is stopped with the note \"this journey has no stages; hand it in again with its stages\" (or the matching note for a story's criteria)"
+  - "`look` at such a work answers without crashing and shows that stopped state and its note"
