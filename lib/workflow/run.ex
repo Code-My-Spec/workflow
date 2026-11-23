@@ -198,7 +198,7 @@ defmodule Workflow.Run do
         done: is_nil(step),
         step: step && step.name,
         actor: step && step.actor,
-        note: step && step.note,
+        note: if(step, do: step.note, else: ci_note(snapshot)),
         head: snapshot.head,
         commits: snapshot.commits,
         found: Map.get(snapshot.results, snapshot.head, %{}),
@@ -920,10 +920,28 @@ defmodule Workflow.Run do
         {commit, stat} -> "Landed as commit #{commit}: #{stat}."
       end
 
-    "\n\n" <> landed <> "\nLast decision note: " <> (note || "none")
+    "\n\n" <> landed <> "\nLast decision note: " <> (note || "none") <> said_by_ci(work)
   end
 
   defp outcome(_work, _how), do: ""
+
+  # What the ci event that finished the work said, as a skipped verdict says why
+  # no ci ran; nothing where it said nothing, as a green one most often does.
+  defp said_by_ci(%{"id" => id, "root" => root}) do
+    with %{} = snapshot <- Checkout.snapshot(root, id),
+         "" <> note <- ci_note(snapshot),
+         do: "\nci: " <> note,
+         else: (_none -> "")
+  end
+
+  defp said_by_ci(_no_copy), do: ""
+
+  defp ci_note(snapshot) do
+    case Workflow.Parts.found(snapshot, "ci") do
+      %{"note" => "" <> note} -> note
+      _none -> nil
+    end
+  end
 
   @doc """
   The path of the work's log at the tree its checkout is at now, nil where it
