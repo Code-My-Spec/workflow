@@ -312,7 +312,7 @@ defmodule Workflow.Manager do
 
   # What a work is handed in with: the old text and criteria (a journey's stages),
   # or a story's own shape.
-  @handed_in ~w(kind id text criteria stages title workflow story rules questions skills)
+  @handed_in ~w(kind id text criteria stages title workflow story_id story rules questions skills)
 
   defp hand_in(manager) do
     Alloy.Tool.inline(
@@ -391,6 +391,7 @@ defmodule Workflow.Manager do
           recorded
           |> Map.put("criteria", Workflow.StoryFile.criteria(recorded))
           |> Map.merge(work)
+          |> ids_checked()
 
         {:none, path} ->
           {:refused,
@@ -398,7 +399,8 @@ defmodule Workflow.Manager do
              "copy). Hand it in whole."}
       end
     else
-      work
+      # One that carries its text gets the ids it lacks before it is recorded.
+      if shaped?(work), do: work |> Workflow.StoryFile.with_ids() |> ids_checked(), else: work
     end
   end
 
@@ -431,6 +433,18 @@ defmodule Workflow.Manager do
   end
 
   defp by_id(work, _manager), do: work
+
+  # A story in the story's shape (title, story, rules) has an id for itself, each
+  # rule and each scenario, none repeated; one handed in the old way (text and
+  # criteria) has no such parts.
+  defp ids_checked(work) do
+    case shaped?(work) && Workflow.StoryFile.ids_refused(work) do
+      "" <> refused -> {:refused, refused}
+      _ok -> work
+    end
+  end
+
+  defp shaped?(work), do: Enum.any?(["title", "story", "rules"], &Map.has_key?(work, &1))
 
   defp id_alone?(work),
     do: Map.keys(Map.take(work, @handed_in -- ["skills"])) |> Enum.sort() == ["id", "kind"]
@@ -493,20 +507,26 @@ defmodule Workflow.Manager do
       stages: %{type: "array", items: %{type: "string"}},
       title: %{type: "string"},
       workflow: %{type: "string"},
+      story_id: %{type: "string", description: "The story's own id; generated when absent"},
       story: %{type: "string"},
       rules: %{
         type: "array",
         items: %{
           type: "object",
           properties: %{
+            id: %{type: "string", description: "The rule's id; generated when absent"},
             rule: %{type: "string"},
             scenarios: %{
               type: "array",
               items: %{
                 type: "object",
-                properties: %{happy: %{type: "string"}, fails: %{type: "string"}},
+                properties: %{
+                  id: %{type: "string", description: "The scenario's id; generated when absent"},
+                  happy: %{type: "string"},
+                  fails: %{type: "string"}
+                },
                 minProperties: 1,
-                maxProperties: 1
+                maxProperties: 2
               }
             }
           },
