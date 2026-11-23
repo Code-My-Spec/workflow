@@ -150,6 +150,65 @@ defmodule Workflow.Agents do
          do: {:ok, plugin ++ settings ++ more}
   end
 
+  @support "You are Code My Spec support. A manager of a project that uses Code My Spec asks " <>
+             "you a question. Answer it for that project from Code My Spec as it is here, then " <>
+             "send the answer with the reply_to_support_thread tool: nothing else reaches the manager."
+
+  @doc """
+  A support session (a `start_support` push): the manager's agent, in the
+  manager's repository, answers `question` for project `project_id` and replies
+  with reply_to_support_thread on `thread_id`, resuming the Claude Code session
+  `resume` when given. Not a work: no copy, branch, works file or slot. Answers
+  the session's resume handle (its session id), else nil.
+  """
+  @spec support(map()) :: String.t() | nil
+  def support(%{"project_id" => project, "thread_id" => thread, "question" => question} = ask) do
+    manager = Workflow.Manager.configured() || %{}
+    root = manager["repo"] || File.cwd!()
+
+    case provider(%{actor: :support}, %{"root" => root, "agent" => manager["agent"]}) do
+      {:ok, {module, config}} ->
+        mcp = if module == AlloyClaudeCode, do: Workflow.Mcp.tools(), else: []
+        alloy_run = Application.get_env(:workflow, :alloy_run, &Alloy.run/2)
+
+        prompt =
+          "Project #{project} asks: #{question}\n\nAnswer it for that project, then reply with " <>
+            "reply_to_support_thread, with conversation_id #{thread}."
+
+        result =
+          alloy_run.(prompt,
+            provider: {module, resumed(config, ask["resume"])},
+            tools: [@tools.read, @tools.bash] ++ mcp,
+            working_directory: root,
+            system_prompt: @support,
+            max_retries: 0,
+            max_turns: 200
+          )
+
+        Logger.info("[Workflow support #{thread}] ended: #{elem(result, 0)}")
+
+        case result do
+          {_status, %{metadata: %{provider_state: %{session_id: "" <> handle}}}} -> handle
+          _no_handle -> nil
+        end
+
+      other ->
+        Logger.warning("[Workflow support #{thread}] not started: #{inspect(other)}")
+        nil
+    end
+  end
+
+  # A session resumed by its id: the new prompt is all that is sent to it.
+  defp resumed(config, "" <> id) when id != "",
+    do:
+      Map.put(config, :provider_state, %{
+        session_id: id,
+        sent_upto: 0,
+        prefix_hash: AlloyClaudeCode.Session.prefix_hash([])
+      })
+
+  defp resumed(config, _none), do: config
+
   @doc "Forgets every agent of a work that is done."
   @spec forget(String.t()) :: :ok
   def forget(id),
