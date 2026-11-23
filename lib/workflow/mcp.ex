@@ -13,6 +13,9 @@ defmodule Workflow.Mcp do
   `${WORKFLOW_PROJECT_ID}` and `${WORKFLOW_SERVER_TOKEN}` (a sign-in token,
   fetched afresh for each session and never logged or kept). With no server
   configured, an entry naming any of them is left out with a warning.
+
+  An entry with `"roles"` (e.g. `["manager"]`) is given only to agents of those
+  roles; one without is given to every agent that gets the plugin's MCP tools.
   """
 
   require Logger
@@ -24,14 +27,19 @@ defmodule Workflow.Mcp do
     "${WORKFLOW_SERVER_TOKEN}"
   ]
 
-  @doc "The tools of every MCP server in the plugin's `.mcp.json`; none without one."
-  @spec tools() :: [Alloy.Tool.Inline.t()]
-  def tools do
+  @doc """
+  The tools of every MCP server in the plugin's `.mcp.json` for an agent of
+  `role` (the manager's `:manager`, a work agent's actor); none without one.
+  """
+  @spec tools(atom() | String.t()) :: [Alloy.Tool.Inline.t()]
+  def tools(role) do
     with "" <> path <- Workflow.Plugin.mcp(),
          {:ok, text} <- File.read(path),
          text = String.replace(text, "${CLAUDE_PLUGIN_ROOT}", Workflow.Plugin.dir()),
          {:ok, %{"mcpServers" => %{} = servers}} <- Jason.decode(text) do
-      Enum.flat_map(servers, fn {name, server} ->
+      servers
+      |> Enum.filter(fn {_name, server} -> role?(server, role) end)
+      |> Enum.flat_map(fn {name, server} ->
         if server?() or not String.contains?(Jason.encode!(server), @server_placeholders) do
           tools(name, server)
         else
@@ -46,6 +54,10 @@ defmodule Workflow.Mcp do
       _none -> []
     end
   end
+
+  # An entry with no roles is every agent's.
+  defp role?(%{"roles" => [_ | _] = roles}, role), do: to_string(role) in roles
+  defp role?(_server, _role), do: true
 
   defp server?, do: match?(%{"url" => "" <> _}, Application.get_env(:workflow, :server))
 

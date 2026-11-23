@@ -130,7 +130,7 @@ defmodule Workflow.PluginMcpServerTest do
     server = server(dir, @token)
     settings(plugin: plugin(dir, %{"cms" => @whoami}), server: server)
 
-    whoami = named(Workflow.Mcp.tools())["mcp__cms__whoami"]
+    whoami = named(Workflow.Mcp.tools(:manager))["mcp__cms__whoami"]
     assert {:ok, "https://loop.example p-7 #{@token}"} == whoami.execute.(%{}, %{})
 
     # Signed in afresh for each session: a refreshed token is the one sent next.
@@ -185,5 +185,102 @@ defmodule Workflow.PluginMcpServerTest do
       end)
 
     assert [_one] = Regex.scan(~r/MCP server cms\b/, log)
+  end
+
+  test "plugin-mcp-reaches-the-server: an entry with roles [\"manager\"] reaches only the manager; one with no roles reaches every agent",
+       %{tmp_dir: dir} do
+    servers = %{
+      "issues" => %{
+        "command" => "sh",
+        "args" => ["${CLAUDE_PLUGIN_ROOT}/fake-mcp.sh"],
+        "roles" => ["manager"]
+      },
+      "fake" => %{"command" => "sh", "args" => ["${CLAUDE_PLUGIN_ROOT}/fake-mcp.sh"]}
+    }
+
+    settings(plugin: plugin(dir, servers), server: nil)
+    repo = manager(dir)
+
+    Workflow.Manager.tell("hello")
+    assert_receive {:manager_opts, opts}, 5_000
+    managed = named(opts[:tools])
+    assert managed["mcp__issues__whoami"]
+    assert managed["mcp__fake__whoami"]
+
+    test = self()
+
+    settings(
+      alloy_run: fn _message, opts ->
+        send(test, {:alloy_opts, opts})
+        {:ok, %{status: :completed, turns: 1, messages: []}}
+      end
+    )
+
+    step = %{
+      name: "work",
+      actor: :coder,
+      note: "Fix it.",
+      agent: %{tools: [:bash], brief: "Fix it."}
+    }
+
+    Workflow.Agents.run(step, %{
+      "id" => "mcp-roles",
+      "root" => repo,
+      "agent" => %{"provider" => "claude-code"}
+    })
+
+    assert_receive {:alloy_opts, opts}, 5_000
+    coded = named(opts[:tools])
+    assert coded["mcp__fake__whoami"]
+    refute coded["mcp__issues__whoami"]
+  end
+
+  # An MCP server over stdio whose tool reports what its env holds.
+  @env_stdio ~S"""
+  #!/bin/sh
+  while IFS= read -r line; do
+    id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+    [ -z "$id" ] && continue
+    if [ "$CMS_TOKEN" = "EXPECTED_TOKEN_HERE" ]; then same=token-matches; else same=token-differs; fi
+    case "$line" in
+      *'"initialize"'*) echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"capabilities\":{}}}" ;;
+      *'"tools/list"'*) echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"env\",\"description\":\"Env.\",\"inputSchema\":{\"type\":\"object\"}}]}}" ;;
+      *'"tools/call"'*) echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"$CMS_SERVER_URL $CMS_PROJECT_ID $same $WORKFLOW_TEST_KEPT\"}]}}" ;;
+    esac
+  done
+  """
+
+  test "plugin-mcp-reaches-the-server: a command server's env has the placeholders put in, its keys over the loop's, and the rest of the loop's env",
+       %{tmp_dir: dir} do
+    servers = %{
+      "issues" => %{
+        "command" => "sh",
+        "args" => ["${CLAUDE_PLUGIN_ROOT}/issues.sh"],
+        "env" => %{
+          "CMS_SERVER_URL" => "${WORKFLOW_SERVER_URL}",
+          "CMS_PROJECT_ID" => "${WORKFLOW_PROJECT_ID}",
+          "CMS_TOKEN" => "${WORKFLOW_SERVER_TOKEN}"
+        },
+        "roles" => ["manager"]
+      }
+    }
+
+    plugin = plugin(dir, servers)
+
+    File.write!(
+      Path.join(plugin, "issues.sh"),
+      String.replace(@env_stdio, "EXPECTED_TOKEN_HERE", @token)
+    )
+
+    settings(plugin: plugin, server: server(dir, @token))
+
+    for {key, value} <- [{"WORKFLOW_TEST_KEPT", "kept"}, {"CMS_PROJECT_ID", "overridden"}] do
+      was = System.get_env(key)
+      System.put_env(key, value)
+      on_exit(fn -> if was, do: System.put_env(key, was), else: System.delete_env(key) end)
+    end
+
+    env = named(Workflow.Mcp.tools(:manager))["mcp__issues__env"]
+    assert {:ok, "https://loop.example p-7 token-matches kept"} == env.execute.(%{}, %{})
   end
 end

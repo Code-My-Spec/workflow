@@ -84,7 +84,9 @@ defmodule Workflow.Agents do
 
     # A Claude Code agent also has the plugin's MCP servers, as Alloy runs its tools.
     tools =
-      if match?({AlloyClaudeCode, _}, provider), do: tools ++ Workflow.Mcp.tools(), else: tools
+      if match?({AlloyClaudeCode, _}, provider),
+        do: tools ++ Workflow.Mcp.tools(step.actor),
+        else: tools
 
     system = if(:write in agent.tools, do: agent.brief <> @writer, else: agent.brief) <> skills
     Workflow.Conversation.begun(conversation, who, system, tools)
@@ -168,7 +170,7 @@ defmodule Workflow.Agents do
 
     case provider(%{actor: :support}, %{"root" => root, "agent" => manager["agent"]}) do
       {:ok, {module, config}} ->
-        mcp = if module == AlloyClaudeCode, do: Workflow.Mcp.tools(), else: []
+        mcp = if module == AlloyClaudeCode, do: Workflow.Mcp.tools(:support), else: []
         alloy_run = Application.get_env(:workflow, :alloy_run, &Alloy.run/2)
 
         prompt =
