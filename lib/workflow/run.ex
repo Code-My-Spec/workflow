@@ -161,7 +161,7 @@ defmodule Workflow.Run do
   # A story or journey is kept in the repository, committed as the work's first
   # commit, so it merges with the code that meets it. An issue gets no file.
   defp story_file(%{"kind" => kind, "id" => id, "root" => root} = work) do
-    if path = Workflow.StoryFile.path(work) do
+    if path = Workflow.StoryFile.path(work, root) do
       message = "#{kind} #{id}: the #{kind} as handed in"
 
       with {:error, why} <-
@@ -790,6 +790,13 @@ defmodule Workflow.Run do
            do: land(work)
     end
 
+    # One queued behind a work no longer in flight or queued is started.
+    ids = Enum.map(story_works(), & &1["id"])
+
+    for %{"queued" => true, "behind" => behind} <- story_works(),
+        behind not in ids,
+        do: release(behind)
+
     :ok
   end
 
@@ -829,8 +836,60 @@ defmodule Workflow.Run do
     ErlangError -> :ok
   end
 
-  # Done, waiting on its owner, or stopped: nothing left to resume.
-  defp land(%{"id" => id}), do: File.rm(Path.join(works_dir(), "#{id}.json"))
+  # Done, waiting on its owner, or stopped: nothing left to resume. A work queued
+  # behind it starts now.
+  defp land(%{"id" => id}) do
+    File.rm(Path.join(works_dir(), "#{id}.json"))
+    release(id)
+  end
+
+  @doc """
+  Queues `work` behind the work its `"behind"` names: kept under the works
+  directory's `queued/`, and started (see `start/1`) once that work is done or
+  stopped, at once when it is neither in flight nor queued already.
+  """
+  @spec queue(map()) :: :ok
+  def queue(%{"id" => id, "behind" => behind} = work) do
+    File.mkdir_p!(queued_dir())
+    File.write!(Path.join(queued_dir(), "#{id}.json"), Jason.encode!(keyless(work)))
+
+    unless Enum.any?(story_works(), &(&1["id"] == behind)), do: release(behind)
+    :ok
+  end
+
+  @doc """
+  Every work in flight and every work queued (see `queue/1`), each its record as
+  kept; a queued one has `"queued" => true`.
+  """
+  @spec story_works() :: [map()]
+  def story_works do
+    queued = for work <- read_works(queued_dir()), do: Map.put(work, "queued", true)
+    read_works(works_dir()) ++ queued
+  end
+
+  defp read_works(dir) do
+    for file <- Path.wildcard(Path.join(dir, "*.json")),
+        {:ok, json} <- [File.read(file)],
+        {:ok, %{} = work} <- [Jason.decode(json)],
+        do: work
+  end
+
+  defp queued_dir, do: Path.join(works_dir(), "queued")
+
+  # Each work queued behind `id` is taken off the queue and started, with the
+  # manager's agents, whose keys were kept nowhere.
+  defp release(id) do
+    for file <- Path.wildcard(Path.join(queued_dir(), "*.json")),
+        {:ok, json} <- [File.read(file)],
+        {:ok, %{"behind" => ^id} = work} <- [Jason.decode(json)],
+        File.rm(file) == :ok do
+      agents = (Workflow.Manager.configured() || %{})["agents"]
+      work = if agents, do: Map.put(work, "agents", agents), else: work
+      Task.start(fn -> start(work) end)
+    end
+
+    :ok
+  end
 
   # Landed by the loop, which tells the manager how, in the background so the
   # loop never waits on it.

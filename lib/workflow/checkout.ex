@@ -273,6 +273,62 @@ defmodule Workflow.Checkout do
   end
 
   @doc """
+  The full sha of the commit `at` (the main copy's HEAD where `at` is nil) in
+  `repo`'s main copy, fetched from its remotes first (one with no remote fetches
+  nothing): `{:ok, sha}`, or `:none` when there is no such commit.
+  """
+  @spec pinned(String.t() | nil, String.t() | nil) :: {:ok, String.t()} | :none
+  def pinned(repo, at) do
+    with %{folder: folder} <- landing(repo),
+         _fetched <- fetched(folder),
+         {:ok, sha} <-
+           git(folder, ["rev-parse", "--verify", "--quiet", "#{at || "HEAD"}^{commit}"]) do
+      {:ok, sha}
+    else
+      _none -> :none
+    end
+  end
+
+  defp fetched(folder) do
+    with {:ok, "" <> remotes} when remotes != "" <- git(folder, ["remote"]),
+         do: git(folder, ["fetch", "--all", "--quiet"])
+  end
+
+  @doc "The file `path` as it is at the commit `sha` of `repo`'s main copy (`git show <sha>:<path>`)."
+  @spec show(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def show(repo, sha, path) do
+    with %{folder: folder} <- landing(repo),
+         {:ok, "blob"} <- git(folder, ["cat-file", "-t", "#{sha}:#{path}"]) do
+      git(folder, ["show", "#{sha}:#{path}"])
+    else
+      {:error, why} -> {:error, why}
+      _none -> {:error, "no file #{path} at #{sha}"}
+    end
+  end
+
+  @doc "`git diff <old>..<new> -- <path>` in `repo`'s main copy."
+  @spec diff(String.t(), String.t(), String.t(), String.t()) :: String.t()
+  def diff(repo, old, new, path) do
+    with %{folder: folder} <- landing(repo),
+         {:ok, diff} <- git(folder, ["diff", "#{old}..#{new}", "--", path]) do
+      diff
+    else
+      _none -> ""
+    end
+  end
+
+  @doc "Whether the commit `old` comes before the commit `new` in `repo`'s main copy."
+  @spec before?(String.t(), String.t(), String.t()) :: boolean()
+  def before?(repo, old, new) do
+    with %{folder: folder} <- landing(repo),
+         {:ok, _ancestor} <- git(folder, ["merge-base", "--is-ancestor", old, new]) do
+      old != new
+    else
+      _none -> false
+    end
+  end
+
+  @doc """
   Whether the work `kind`/`id` landed: its branch, or a commit of its own (named
   `<kind> <id>: ...`, as its story or issue file's is), is merged in the main
   copy. Stopping a work commits in the main copy too; that commit is not a landing.
