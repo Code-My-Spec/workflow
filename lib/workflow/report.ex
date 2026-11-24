@@ -72,6 +72,28 @@ defmodule Workflow.Report do
     :ok
   end
 
+  @doc """
+  Hands the loop's line to the server, where there is one, one report of the
+  work `id` checked out at `root` for each of `events` (the lines one script of
+  a step printed), with that event as its `"event"`, in the order printed. The
+  report is made once for them all, before this answers. Called by
+  `Workflow.Devops` alone.
+  """
+  @spec events(String.t(), String.t(), [map()]) :: :ok
+  def events(_root, _id, []), do: :ok
+
+  def events(root, id, events) do
+    if server = Process.whereis(Workflow.Server) do
+      # Made in a process of its own, as `recorded/2` makes one, but waited on.
+      task = Task.async(fn -> safely(fn -> of(root, id) end) end)
+
+      with {:ok, %{} = report} <- Task.yield(task, 60_000) || Task.shutdown(task, :brutal_kill),
+           do: for(event <- events, do: send(server, {:report, Map.put(report, "event", event)}))
+    end
+
+    :ok
+  end
+
   @doc "The report of the work `id` checked out at `root`, or nil where no work was kept there."
   @spec of(String.t(), String.t()) :: map() | nil
   def of(root, id) do
