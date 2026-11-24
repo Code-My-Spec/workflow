@@ -58,7 +58,7 @@ defmodule Workflow.Run do
   def cancel(%{"repo" => repo, "kind" => kind, "id" => id} = work) do
     Checkout.cancel(repo, id)
     end_turns(Checkout.root(repo, id))
-    land(work)
+    unfly(work, {"stopped", nil})
     close_browser(id)
     Checkout.remove(repo, kind, id, work["project"])
   end
@@ -397,7 +397,7 @@ defmodule Workflow.Run do
   defp copied(work, run) do
     case owned(work) do
       %{stop: true, name: name, note: note} = step ->
-        land(work, "stopped at #{name}: stopped: #{note}")
+        land(work, "stopped at #{name}: stopped: #{note}", {"stopped", name})
         {step, "stopped: #{note}"}
 
       owned ->
@@ -741,7 +741,7 @@ defmodule Workflow.Run do
   end
 
   defp left(%{"id" => id} = work, left) do
-    land(work, landed(left))
+    land(work, landed(left), if(is_nil(left), do: {"done", nil}))
     if is_nil(left), do: Agents.forget(id)
     Logger.info("[Workflow #{id}] left on #{(is_map(left) && left.name) || "done"}")
   end
@@ -754,7 +754,7 @@ defmodule Workflow.Run do
   defp stop!(%{"id" => id, "root" => root} = work, step, reason) do
     Logger.warning("[Workflow #{id}] #{step.name} #{reason}")
     Checkout.stop(root, id, step.name, reason)
-    land(work, "stopped at #{step.name}: #{reason}")
+    land(work, "stopped at #{step.name}: #{reason}", {"stopped", step.name})
   end
 
   # Kept where a stop is, so the manager's look says why, and said as a work
@@ -785,9 +785,10 @@ defmodule Workflow.Run do
     for file <- Path.wildcard(Path.join(works_dir(), "*.json")),
         {:ok, %{} = work} <- [file |> File.read!() |> Jason.decode()] do
       # Done, the owner's, or not runnable: no longer in flight. One waiting on
-      # its ci event stays, so the event finds it.
+      # its ci event stays, so the event finds it. One still in flight here is
+      # dropped by the loop: it has ended, stopped.
       with {_step, agent} when agent not in ["started", "waiting"] <- start(work),
-           do: land(work)
+           do: unfly(work, {"stopped", nil})
     end
 
     # One queued behind a work no longer in flight or queued is started.
@@ -838,8 +839,27 @@ defmodule Workflow.Run do
 
   # Done, waiting on its owner, or stopped: nothing left to resume. A work queued
   # behind it starts now.
-  defp land(%{"id" => id}) do
-    File.rm(Path.join(works_dir(), "#{id}.json"))
+  defp land(work), do: unfly(work, nil)
+
+  # A work that ends (`ended` is its status and the step it ended at) sends its
+  # last report before its file is removed (`Workflow.Report.ended/3`): once,
+  # under a lock on its file and only while the file is there, so a second path
+  # ending the same work (a stop after its ci event) sends none.
+  defp unfly(%{"id" => id} = work, ended) do
+    file = Path.join(works_dir(), "#{id}.json")
+
+    :global.trans(
+      {{__MODULE__, :ended, id}, self()},
+      fn ->
+        with {status, step} <- ended,
+             true <- File.exists?(file),
+             do: Workflow.Report.ended(work, status, step)
+
+        File.rm(file)
+      end,
+      [node()]
+    )
+
     release(id)
   end
 
@@ -893,9 +913,9 @@ defmodule Workflow.Run do
 
   # Landed by the loop, which tells the manager how, in the background so the
   # loop never waits on it.
-  defp land(%{"id" => id, "kind" => kind} = work, how) do
+  defp land(%{"id" => id, "kind" => kind} = work, how, ended \\ nil) do
     say(work, how)
-    land(work)
+    unfly(work, ended)
     close_browser(id)
 
     if Workflow.Manager.configured(),

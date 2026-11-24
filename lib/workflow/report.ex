@@ -3,8 +3,10 @@ defmodule Workflow.Report do
   The whole current picture of one work, as the loop reports it to the server
   (`Workflow.Server` pushes it as `"report"` on `loop:<project_id>`). Every kind
   reports in one shape; its steps and who acts on each come from the work's own
-  template. The loop only sends: nothing is queued, replayed or read back, and a
-  report that cannot be made or sent is logged and never stops a step.
+  template. The loop only sends: nothing is replayed or read back, and a report
+  that cannot be made or sent is logged and never stops a step. A work's last
+  report (`ended/3`) is the one kept when it cannot be sent, and sent at the
+  next join (see `Workflow.Server`), since no file is left to report it again.
   """
 
   require Logger
@@ -23,6 +25,43 @@ defmodule Workflow.Report do
       Task.start(fn ->
         if report = safely(fn -> of(root, id) end), do: send(server, {:report, report})
       end)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Hands the last report of `work` to the loop's line to the server as the work
+  ends, where there is a line: its `status` "done", "stopped" or "released",
+  and `step` the step it ended at (where nil, the step it is on; a work done
+  ended at its last). A work stopped while it waits on its ci event has landed:
+  it is released. Made before this answers, so it is sent before the work's
+  file is removed. Called by `Workflow.Run` alone, once as each work ends.
+  """
+  @spec ended(map(), String.t(), String.t() | nil) :: :ok
+  def ended(%{"id" => id} = work, status, step) do
+    if server = Process.whereis(Workflow.Server) do
+      # A work done whose copy is taken away is read from the repository it was
+      # cut from, which shares the copy's results.
+      root =
+        Enum.find(
+          [work["root"], work["repo"] && Checkout.root(work["repo"], id), work["repo"]],
+          &(is_binary(&1) and File.dir?(&1))
+        )
+
+      # Made in a process of its own, as `recorded/2` makes one, but waited on.
+      task = Task.async(fn -> root && safely(fn -> of(root, id) end) end)
+
+      with {:ok, %{} = report} <- Task.yield(task, 60_000) || Task.shutdown(task, :brutal_kill) do
+        step =
+          step ||
+            if status == "done",
+              do: List.last(report["steps"])["name"],
+              else: report["step"]
+
+        status = if status == "stopped" and step == "ci", do: "released", else: status
+        send(server, {:report, %{report | "status" => status, "step" => step}})
+      end
     end
 
     :ok
