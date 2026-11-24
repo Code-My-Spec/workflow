@@ -19,10 +19,43 @@ All in `lib/workflow/checkout.ex`, all through its private `git/3`:
   unchanged for a path that exists, and for any path when no server is
   configured or the server refuses.
 
-## The rule: hosted or not (the owner's decision)
+## The stop, and the owner's answer
 
-The code and config could not tell the two apart, and the owner decided: the
-loop does not decide, it asks. With a `"server"` (`url` and `project_id`)
+The code and config cannot tell a hosted project from one on the customer's
+own GitHub. The only clue is the remote's URL, and Code My Spec's own projects
+are on github.com under Code-My-Spec too (this repo's origin is
+`git@github.com:Code-My-Spec/workflow.git`). So the coder stopped twice, as
+the issue says to, and asked. The owner's answer came back with the third
+hand-off of this work. Its first point, word for word:
+
+> 1. What counts as hosted: the loop does not decide. It asks the server:
+> POST <server url>/api/repo/clone_token for its project, with the loop's
+> bearer token. A 200 with {token, expires_at, clone_url} means the repo is
+> hosted, so use the token. Any refusal (the project is not hosted, or is on
+> the customer's own GitHub) means keep today's git path unchanged. Cache the
+> answer, hosted or not, for one token lifetime (until expires_at, or a
+> comparable span for a refusal), never forever. With no server configured,
+> make no request and keep today's path. This REPLACES the recorded criterion
+> that a customer-GitHub project makes no clone_token request: such a project
+> may now be asked once per lifetime, and is then left on today's path. Its
+> git commands must be exactly as today. Name this change in the decision
+> note so the reviewer reads the criterion this way.
+>
+> 2. Cloning: the loop clones only when the project has no main checkout yet
+> (first setup), from clone_url, using the token. Otherwise it fetches and
+> pushes in its existing checkout (the places you found: fetched/1 at
+> checkout.ex:292, follow/3 at :890, pushed/4 at :949). For those calls it
+> passes the token through http.extraHeader, and never stores it in a remote
+> URL, in .git/config or in any file, and never logs it.
+
+The owner also asked for this test, among others: "a refusal leaves the git
+commands exactly as today, and is cached so a second fetch within its
+lifetime asks nothing". A rule based on the remote's URL would go against
+this answer, so none was added.
+
+## The rule: hosted or not
+
+As the owner decided, the loop does not decide: it asks. With a `"server"` (`url` and `project_id`)
 configured, `Workflow.CloneToken.auth/0` POSTs
 `<server>/api/repo/clone_token` with the loop's sign-in bearer token
 (`Workflow.SignIn.token/2`) and `{"project_id": ...}`.
