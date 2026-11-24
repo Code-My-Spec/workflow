@@ -1,0 +1,29 @@
+id: "loop-runs-a-devops-work"
+kind: "issue"
+title: The loop cannot run a DevOps work from a project's devops.yml
+text: |-
+  Fault: the loop has no way to run a DevOps work. From the owner's plan "DevOps tools and the pull cord". The Code My Spec plugin now ships plugins/devops: tools/dns/cloudflare/{probe,apply}, bin/resolve.exs (reads a project's devops.yml into steps) and bin/verify.exs. The loop is given the plugin folder as today (Workflow.Plugin.dir/0, CODEMYSPEC_PLUGIN).
+
+  Wanted: the loop runs a DevOps work, for example "check uat" (probe only) or "apply uat" (apply then probe), as the smallest change, with no new config options:
+  1. It resolves the project's devops.yml through the plugin's bin/resolve.exs. If any line does not resolve to a script, the work is refused and the answer names each such line. Nothing runs.
+  2. It runs each step's apply, then its probe, as system steps (a check work runs only the probes).
+  3. It reads one event per line from each script's stdout, and treats the script's exit code as pass (0) or fail.
+  4. The probe is the truth: a step passes only when its probe passes, whatever its apply said.
+  5. A failed probe goes to an agent step (the coder, with the devops skill from the plugin), with the provider's words from the probe's output in the note, then the probe runs again. This repeats a fixed number of times; name the number and where it is set in the decision note (a constant, not an option). When those retries are spent, the work waits on a person, with the last probe's words in its stop note.
+  6. Every event goes to the server as the work's reports, over the existing channel (Report, as other reports go), and the work's last report follows the terminal-report rule from a-work-that-ends-sends-a-last-report.
+
+  Decide the smallest honest way for the manager to hand such a work in (for example a new work kind with its action and environment), and report its hand_in fields exactly as built in the decision note. Confirm in the code first how templates, system steps, agent steps, retries and reports work today, and reuse them. Grep every caller of what you change. The deploy machinery cut by the-loop-does-no-deploys stays cut: this runs the plugin's scripts, it does not bring back provision, deploy or go.
+
+  Check: tests with a fake plugin directory in tmp_dir (a fake bin/resolve.exs and fake probe/apply scripts that print events and exit 0 or 1), a fake agent and a fake server channel, in temporary git repos, never the real ~/.workflow, .git/workflow or any real provider. Each must fail without the fix:
+  - a devops.yml with an unresolvable line is refused naming it;
+  - an apply work runs apply then probe per step, and passes when all probes pass;
+  - a failing probe goes to the agent with the provider's words, is retried the fixed number of times, then waits on a person;
+  - each event line reaches the server as a report.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A DevOps work (for example \"check uat\" or \"apply uat\") resolves the project's devops.yml through the plugin's bin/resolve.exs, and is refused, naming each line, when any line does not resolve to a script"
+  - "For each resolved step the loop runs its apply (for an apply work) and then its probe as system steps, reading one event per stdout line and taking the exit code as pass or fail; the work passes only when every probe passes"
+  - "A failed probe goes to an agent step with the provider's words in its note and is retried a fixed number of times; when the retries are spent, the work waits on a person"
+  - "Every event a step writes reaches the server as one of the work's reports"
