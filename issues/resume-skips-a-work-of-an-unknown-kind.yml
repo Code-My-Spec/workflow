@@ -1,0 +1,18 @@
+id: "resume-skips-a-work-of-an-unknown-kind"
+kind: "issue"
+title: A work of an unknown kind crashes resume for every work
+text: |-
+  Fault (seen live on the MetricFlow loop): a works file of kind "provision", a kind cut by the-loop-does-no-deploys, made Workflow.Run.resume/0 crash with nil.steps/0. Workflow.Run.system_step/1 looks up @templates[kind], gets nil, and calls Workflow.current(nil, ...). The crash killed resume for every other work on that loop, so the work chat-responds-p0 sat stopped for hours.
+
+  Wanted, as the smallest change, with no new options:
+  1. On resume, a work whose kind has no template is left alone. Its works file is neither changed nor deleted, and it is logged once as a warning that names the work's id and its kind.
+  2. Every other work resumes as today.
+
+  Confirm the defect in the code first. Name in the decision note every place on the resume and boot path that looks up @templates[kind] (system_step/1 and any others, such as start!/2, owned!/2, merged/1, look/1) and how each now handles an unknown kind. Grep every caller of what you change.
+
+  Check: one test, in a temporary git repo and works dir with a fake agent, never the real ~/.workflow or .git/workflow. It writes one works file of an unknown kind (for example "provision") beside one of a known kind, then runs resume. It shows that resume does not crash, that the known work resumes, and that one warning names the unknown work and its kind. The test must fail without the fix. Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "On resume, a work whose kind has no template is left alone, with its works file untouched, and one warning is logged naming the work's id and its kind"
+  - "Resume does not crash on such a work, and every other work with a known kind resumes as today"
