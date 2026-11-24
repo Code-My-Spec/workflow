@@ -195,7 +195,9 @@ defmodule Workflow.Server do
   end
 
   # A work's whole picture (`Workflow.Report`). A send that fails is logged and
-  # dropped: nothing is queued or retried, and the next report says it all again.
+  # dropped: the next report says it all again. A work's last report (its status
+  # done, stopped or released, see `Workflow.Report.ended/3`) has no next: it is
+  # kept, the newest a work, and sent at the next join (`handle_join/3`).
   # A server that does not take reports (see `handle_topic_close/3`) is sent none.
   def handle_info({:report, _report}, %{assigns: %{no_reports: true}} = socket),
     do: {:noreply, socket}
@@ -207,9 +209,15 @@ defmodule Workflow.Server do
 
       {:error, why} ->
         Logger.warning("[Workflow.Server] report on #{report["work"]} not sent: #{inspect(why)}")
-        {:noreply, socket}
+        {:noreply, kept(socket, report)}
     end
   end
+
+  defp kept(socket, %{"status" => status, "work" => work} = report)
+       when status in ["done", "stopped", "released"],
+       do: assign(socket, :ended, Map.put(socket.assigns[:ended] || %{}, work, report))
+
+  defp kept(socket, _report), do: socket
 
   # A refused or dropped join is tried again after Slipstream's `rejoin_after_msec`
   # pause. Slipstream sets its rejoin count back to 0 on every join that succeeds,
@@ -258,10 +266,15 @@ defmodule Workflow.Server do
   def handle_join(topic, _reply, socket) do
     Logger.info("[Workflow.Server] joined #{topic}")
     # Each join, first or again, reports every work in flight; the first also
-    # every journey file with no work, as not started.
+    # every journey file with no work, as not started; and each last report of a
+    # work that ended while the line was down, once.
     started = if socket.assigns[:started], do: [], else: Workflow.Report.unstarted(repo())
-    for report <- Workflow.Report.in_flight() ++ started, do: send(self(), {:report, report})
-    {:ok, assign(socket, :started, true)}
+    ended = Map.values(socket.assigns[:ended] || %{})
+
+    for report <- Workflow.Report.in_flight() ++ ended ++ started,
+        do: send(self(), {:report, report})
+
+    {:ok, assign(socket, started: true, ended: %{})}
   end
 
   # The repository works are cut from, the manager's.
