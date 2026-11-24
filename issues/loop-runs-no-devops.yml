@@ -1,0 +1,24 @@
+id: "loop-runs-no-devops"
+kind: "issue"
+title: The loop carries a DevOps step runner that belongs on the CI runner
+text: |-
+  Fault: loop-runs-a-devops-work (landed as 30fdde7) added a DevOps step runner to the loop. The owner has changed the design (2026-11-24): DevOps is one script plus evidence, run by CI tooling on the CI runner, not by the loop. The loop runs no DevOps.
+
+  Wanted, as the smallest change, with no new options: cut what 30fdde7 added for DevOps, with its tests and docs:
+  1. The devops work kind: lib/workflow/devops.ex (Workflow.Devops, its @retries, resolve and probe steps) and its place in Run's @templates and Run.kinds().
+  2. The `action` and `environment` hand-in fields: from @handed_in, from the manager's hand_in tool schema, and the `devops` value from every kind enum.
+  3. The manager's by_id call to the plugin's bin/resolve.exs and its refusal for unresolvable devops.yml lines.
+  4. Report.events/3 and the Run.advance guard that skips system steps marked stop, and Agents.skills reading a skill from the step, each ONLY if nothing but the devops kind uses it. Grep every caller first; anything another kind uses stays exactly as it is. Name in the decision note what you cut and what you kept and why.
+  5. The tests that test only the devops kind.
+
+  Keep exactly as is: everything else, including CODEMYSPEC_PLUGIN for recipes and agents, the plugin's MCP tools, reports, the ci external step and evidence upload.
+
+  Check: one small test that fails without the fix: a hand-in of kind devops is refused naming the kind, with nothing started or recorded, and the manager's tool schema has no devops kind and no action or environment field. Run the full suite (in parts if the 120 s tool limit cuts it) and report the counts. Don't weaken or delete any test of what is kept.
+
+  Report in the decision note the lib and test line counts before and after.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "Handing in a work of kind devops is refused with a message naming the kind, and nothing is started or recorded"
+  - "The manager's hand_in tool schema offers no devops kind and no action or environment fields"
+  - "Issues, stories and journeys hand in, run and land as they do today"
