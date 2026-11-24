@@ -1,0 +1,28 @@
+id: "loop-clones-hosted-repos-with-a-clone-token"
+kind: "issue"
+title: The loop cannot clone, fetch or push a repo the server hosts
+text: |-
+  Fault: from the owner's plan "Hosted repos: no GitHub account needed". A project whose repo the server hosts (in the Code-My-Spec org, with no customer GitHub) has no git credential on the loop box, so the loop cannot clone, fetch or push it.
+
+  Wanted, as the smallest change, with no new config options:
+  1. Before cloning, fetching or pushing such a project's repo, the loop asks the server: POST <server url>/api/repo/clone_token, with the loop's bearer token (the credential sign-in writes) and the project. The answer is {token, expires_at (about 1 hour), clone_url}.
+  2. The loop passes the token to git through http.extraHeader for that one command (for example `git -c http.extraHeader="Authorization: ..."`, or GIT_CONFIG_* env), never in a remote URL, never written to disk (.git/config, any file) and never logged. Use clone_url as the URL to clone from.
+  3. It reuses a token until it is near expiry and refreshes it before then.
+  4. Projects on the customer's own GitHub keep today's path unchanged, with no request to the server.
+  5. A failed token request fails the git step with one clear line (no token in it), as other git failures do.
+
+  Confirm in the code first every place the loop clones, fetches or pushes (Checkout, the main copy's push, fetch in the manager's hand-in) and how it can tell a server-hosted project from one on the customer's GitHub. Name that rule in the decision note, and stop and say so if the code and config cannot tell them apart without a decision from the owner. Grep every caller of what you change.
+
+  Check: tests with a stubbed server (a fake HTTP function or loopback Bandit) and temporary git repos, never the real ~/.workflow or network. Each must fail without the fix:
+  - a hosted project's clone/fetch/push asks for a clone token and git receives it through http.extraHeader;
+  - the token is in no remote URL, no file under the repo or works dir, and no captured log line;
+  - a token near expiry is refreshed and a fresh one is reused;
+  - a customer-GitHub project makes no clone_token request.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "Before cloning, fetching or pushing a server-hosted project's repo, the loop gets a token from POST /api/repo/clone_token and the git command authenticates with it through http.extraHeader"
+  - "The token never appears in a remote URL, in any file on disk (including .git/config) or in any log line"
+  - "A token near its expires_at is refreshed before the next git command, and a valid one is reused"
+  - "A project on the customer's own GitHub clones, fetches and pushes as today, with no clone_token request"
