@@ -1,0 +1,27 @@
+id: "a-work-that-ends-sends-a-last-report"
+kind: "issue"
+title: A work that ends sends no last report, so the server shows it in flight forever
+text: |-
+  Fault (seen on Code My Spec, 2026-11-24): the server's pipeline page builds each work's state from that work's newest `report` (loop_report events). When the loop stops or releases a work (manager stop or release, a ci event that finishes it, or a work the loop drops), it removes the work but sends no final report. So the work's newest report stays at step "ci", or wherever it was, forever. The server showed 15 works in flight when only 5 were.
+
+  Wanted, as the smallest change that does it, with no new options:
+  1. Every way a work ends sends one last `report` over the server channel. It carries a terminal status ("done", "stopped" or "released", whichever is true) and the step the work ended at. It is sent before the work's file is removed.
+  2. The ways a work ends include: the manager's stop, a manager release (by hand, for example of a work waiting at ci), a ci event that finishes the work (green, flaky, skipped), and any work the loop drops on its own. Find every one in the code (run.ex, manager.ex, checkout.ex remove/disown, the boot path) and name them in the decision note.
+  3. If the server is unreachable at that moment, the report is kept and sent on reconnect, like any other report. Confirm in the code how reports are queued and resent today, and reuse that. Keep the existing rule that stops reports to an old server that crashes on them.
+  4. Exactly one terminal report per ending: no duplicates when two paths run (for example stop after a ci event).
+
+  Grep every caller of what you change.
+
+  Check: tests with a fake server channel and a fake agent, in temporary git repos and works dirs, never the real ~/.workflow or .git/workflow. Each must fail without the fix:
+  - stopping a work pushes exactly one terminal report, status "stopped", with its step;
+  - releasing a work pushes exactly one, status "released";
+  - finishing a work through its ci event pushes exactly one, status "done";
+  - with the channel down at that moment, the report is kept and pushed once on reconnect.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "Stopping a work pushes exactly one last `report` on the server channel, with status \"stopped\" and the step it ended at, before the work's file is removed"
+  - "Releasing a work pushes exactly one last `report` with status \"released\" and the step it ended at, before the work's file is removed"
+  - "A work finished by its ci event pushes exactly one last `report` with status \"done\" and the step it ended at, before the work's file is removed"
+  - "When the server is unreachable as a work ends, its last report is kept and sent on reconnect, as other reports are"
