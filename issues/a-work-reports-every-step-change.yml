@@ -1,0 +1,28 @@
+id: "a-work-reports-every-step-change"
+kind: "issue"
+title: A work's step changes send no report, so the server shows most works as not in flight
+text: |-
+  Fault (seen on Code My Spec, 2026-11-24): the carve loop held 5 works, but the server's newest loop_report rows were only:
+  - the-pull-cord: 05:02 at step run, 05:03 at step work;
+  - new-user-registers-reliably: 04:54 at step ci.
+  Nothing came for hosted-dev-pulls-from-ghcr (handed in about 04:58, now at fix), devops-server-tool-hetzner or devops-email-tool-resend (both about 05:07). new-user-registers-reliably went back to fix after a red ci event, and no report followed, so the server still shows it at ci. The server's pipeline page builds "in flight" only from these reports, so it showed 1 of 5.
+
+  Wanted, as the smallest change, with no new options:
+  1. The loop sends a `report` carrying the work's whole picture (step, status, steps) at hand-in, and at every change of step or status: entering a step, a step's result, an event that moves the work (including a red ci event sending it back to fix), a stop, and the end. The terminal report from a-work-that-ends-sends-a-last-report (6a872f1) stays exactly one per ending.
+  2. Reports that can't be sent while the server channel is down are kept and sent on reconnect, with each work's newest picture sent last. Reuse how reports are kept and resent today; keep the rule that stops reports to an old server that crashes on them, and keep the rejoin backoff.
+  3. Find why the transitions above sent nothing (for example: reports sent only on join and at some steps, the red-ci path to fix bypassing the report, or reports dropped while the channel is down). Name the cause in the commit message and in the decision note.
+
+  Confirm in the code first every place a work's step or status changes (run.ex, parts.ex, manager.ex hand-in, the event path, the boot path) and where reports are pushed (Report, Workflow.Server). Grep every caller of what you change.
+
+  Check: tests with a fake server channel and a fake agent, in temporary git repos and works dirs, never the real ~/.workflow or .git/workflow. Each must fail without the fix:
+  - a hand-in pushes a report at once;
+  - a red ci event that returns a work to fix pushes a report with step fix;
+  - with the channel down, reports are kept and flushed on reconnect, the newest picture last.
+  Don't weaken or delete any existing test.
+
+  Do not tag, publish, push, or touch any tap.
+criteria:
+  - "A hand-in pushes a `report` with the work's whole picture (step, status, steps) at once"
+  - "Every change of a work's step or status (entering a step, a step's result, an event that moves the work, a stop, the end) pushes one `report` with the new picture"
+  - "A red ci event that sends a work back to fix pushes a report whose step is fix"
+  - "Reports that could not be sent while the server channel was down are sent on reconnect, with each work's newest picture sent last"
