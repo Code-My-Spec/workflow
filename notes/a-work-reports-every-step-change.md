@@ -80,9 +80,13 @@ tmp_dir, a works dir under tmp_dir, a stand-in `just`, agent and server line.
 
 - criterion 1, a hand-in pushes a report at fix while the coder's turn is
   held. **Fails without the fix.**
-- criterion 3, a red ci event pushes a report at fix. **Passes without the
-  fix**: as above, the event's record already reports it with the line up.
-  It is kept as the check that the path stays reported.
+- criterion 3, a red ci event sends the work back to fix while the line is
+  down: the server's last picture (at ci) and the reports the event makes
+  (at fix) all fail to push. On reconnect the picture made at fix while the
+  line was down is sent, and the work's last report is at fix. **Fails
+  without the fix**: the report at fix was dropped, so only a picture made
+  afresh at the join reached the server. The test waits past the pushes
+  before the join, so the fresh picture cannot be the kept one.
 - criterion 4, reports pushed with the line down are kept and sent once at
   the next join, w1's newest (fix) last. **Fails without the fix.**
 

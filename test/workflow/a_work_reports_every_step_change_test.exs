@@ -145,14 +145,57 @@ defmodule Workflow.AWorkReportsEveryStepChangeTest do
     Process.sleep(300)
     flush()
 
+    # The picture the server last had: the work waiting at ci.
+    assert %{"step" => "ci"} = at_ci = Workflow.Report.of(root, "i1")
+
     capture_log(fn ->
       assert Workflow.Run.event("i1", "ci", %{"verdict" => "red", "failing" => ["t1"]}) == :ok
       assert_receive :fix_turn, 5_000
     end)
 
-    assert_received {:pushed, %{"work" => "i1", "step" => "fix", "status" => "running"}}
+    pushed = pushed()
+    assert %{"step" => "fix", "status" => "running"} = newest = List.last(pushed)
+
+    # The line is down as the event moves the work: every push fails.
+    down =
+      Enum.reduce([at_ci | pushed], down(), fn report, socket ->
+        me = self()
+
+        capture_log(fn ->
+          send(me, {:socket, Workflow.Server.handle_info({:report, report}, socket)})
+        end)
+
+        assert_received {:socket, {:noreply, socket}}
+        socket
+      end)
+
+    # Later than the pictures pushed while down, so a picture made afresh at the
+    # join is not the one kept.
+    Process.sleep(1_100)
+
+    capture_log(fn ->
+      assert {:ok, _joined} = Workflow.Server.handle_join("loop:p1", %{}, down)
+    end)
+
+    sent = Enum.filter(receive_reports(), &(&1["work"] == "i1"))
+
+    # The picture made at fix while the line was down is sent on reconnect, and
+    # the work's last report is at fix, not ci.
+    assert newest in sent
+    assert %{"step" => "fix"} = List.last(sent)
 
     stop(work)
+  end
+
+  defp down, do: Slipstream.new_socket() |> Slipstream.Socket.assign(:topic, "loop:p1")
+
+  # Every report the fake line was handed, in order.
+  defp pushed(acc \\ []) do
+    receive do
+      {:pushed, %{"work" => "i1"} = report} -> pushed([report | acc])
+    after
+      300 -> Enum.reverse(acc)
+    end
   end
 
   test "a-work-reports-every-step-change: criterion 4 - reports not sent while the channel is down are sent on reconnect, each work's newest picture last" do
