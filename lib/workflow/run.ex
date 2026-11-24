@@ -793,11 +793,19 @@ defmodule Workflow.Run do
   def resume do
     for file <- Path.wildcard(Path.join(works_dir(), "*.json")),
         {:ok, %{} = work} <- [file |> File.read!() |> Jason.decode()] do
-      # Done, the owner's, or not runnable: no longer in flight. One waiting on
-      # its ci event stays, so the event finds it. One still in flight here is
-      # dropped by the loop: it has ended, stopped.
-      with {_step, agent} when agent not in ["started", "waiting"] <- start(work),
-           do: unfly(work, {"stopped", nil})
+      # Seen live: a work of a kind since cut ("provision") crashed resume for
+      # every work after it. One with no template is left alone, its file as it is.
+      if is_map_key(@templates, work["kind"]) do
+        # Done, the owner's, or not runnable: no longer in flight. One waiting on
+        # its ci event stays, so the event finds it. One still in flight here is
+        # dropped by the loop: it has ended, stopped.
+        with {_step, agent} when agent not in ["started", "waiting"] <- start(work),
+             do: unfly(work, {"stopped", nil})
+      else
+        Logger.warning(
+          "[Workflow #{work["id"]}] not resumed: its kind #{inspect(work["kind"])} has no template"
+        )
+      end
     end
 
     # One queued behind a work no longer in flight or queued is started.
