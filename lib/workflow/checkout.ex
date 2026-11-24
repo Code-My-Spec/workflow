@@ -262,7 +262,7 @@ defmodule Workflow.Checkout do
   """
   @spec landing(String.t() | nil) :: %{folder: String.t(), branch: String.t()} | nil
   def landing(repo) do
-    with true <- is_binary(repo) and File.dir?(repo),
+    with true <- is_binary(repo) and (File.dir?(repo) or cloned(repo)),
          {:ok, "worktree " <> listed} <- git(repo, ~w(worktree list --porcelain)),
          folder = listed |> String.split("\n") |> hd(),
          {:ok, branch} <- git(folder, ~w(rev-parse --abbrev-ref HEAD)) do
@@ -291,7 +291,30 @@ defmodule Workflow.Checkout do
 
   defp fetched(folder) do
     with {:ok, "" <> remotes} when remotes != "" <- git(folder, ["remote"]),
-         do: git(folder, ["fetch", "--all", "--quiet"])
+         do: remote_git(folder, ["fetch", "--all", "--quiet"])
+  end
+
+  # First setup of a repo the server hosts: no main checkout yet, so it is cloned
+  # from the server's clone_url. Anything else (not hosted, no server) clones nothing.
+  defp cloned(repo) do
+    with false <- File.exists?(repo),
+         {:ok, %{clone_url: url, env: env}} <- Workflow.CloneToken.auth(),
+         :ok <- File.mkdir_p(Path.dirname(repo)),
+         {:ok, _cloned} <- git(Path.dirname(repo), ["clone", "--quiet", url, repo], env: env) do
+      true
+    else
+      _none -> false
+    end
+  end
+
+  # A git command that reaches the remote: with a hosted repo's token for that one
+  # command (`Workflow.CloneToken`), else exactly as it always ran.
+  defp remote_git(dir, args) do
+    case Workflow.CloneToken.auth() do
+      {:ok, %{env: env}} -> git(dir, args, env: env)
+      {:ok, nil} -> git(dir, args)
+      {:error, why} -> {:error, why}
+    end
   end
 
   @doc "The file `path` as it is at the commit `sha` of `repo`'s main copy (`git show <sha>:<path>`)."
@@ -889,7 +912,7 @@ defmodule Workflow.Checkout do
   # abort. A conflict is aborted and stops the work.
   defp follow(main_copy, remote, branch) do
     with {:ok, _url} <- git(main_copy, ["remote", "get-url", remote]),
-         {:ok, _fetched} <- git(main_copy, ["remote", "update", remote]),
+         {:ok, _fetched} <- remote_git(main_copy, ["remote", "update", remote]),
          {:error, why} <- git(main_copy, ["merge", "--no-edit", "#{remote}/#{branch}"]),
          {:ok, _aborted} <- git(main_copy, ~w(merge --abort)) do
       conflicted("The main copy does not merge #{remote} #{branch}: #{why}")
@@ -947,7 +970,7 @@ defmodule Workflow.Checkout do
   end
 
   defp pushed(main_copy, remote, branch, commit) do
-    with {:ok, _out} = ok <- git(main_copy, ["push", remote, "HEAD:" <> branch]) do
+    with {:ok, _out} = ok <- remote_git(main_copy, ["push", remote, "HEAD:" <> branch]) do
       Workflow.Server.push("pushed", %{"branch" => branch, "commit" => commit})
       ok
     end
