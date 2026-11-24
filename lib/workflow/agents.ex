@@ -140,10 +140,9 @@ defmodule Workflow.Agents do
     end
   end
 
-  # This kind of agent's skills: the plugin's `skills/<role>`, those its template
-  # names for the step (a DevOps work's coder has the devops skill), its settings
-  # entry's (the one it runs on), and what the work was handed in with for its
-  # role, read against the checkout.
+  # This kind of agent's skills: the plugin's `skills/<role>`, its settings entry's
+  # (the one it runs on), and what the work was handed in with for its role, read
+  # against the checkout.
   defp skills(step, %{"root" => root} = work) do
     actor = to_string(step.actor)
     entry = get_in(work, ["agents", actor]) || work["agent"]
@@ -151,10 +150,9 @@ defmodule Workflow.Agents do
     handed = if is_map(work["skills"]), do: work["skills"][actor]
 
     with {:ok, plugin} <- Workflow.Skills.find(Workflow.Plugin.skills(actor), root),
-         {:ok, template} <- Workflow.Skills.find(step.agent[:skills], root),
          {:ok, settings} <- Workflow.Skills.find(own, root),
          {:ok, more} <- Workflow.Skills.find(handed, root),
-         do: {:ok, plugin ++ template ++ settings ++ more}
+         do: {:ok, plugin ++ settings ++ more}
   end
 
   @support "You are Code My Spec support. A manager of a project that uses Code My Spec asks " <>

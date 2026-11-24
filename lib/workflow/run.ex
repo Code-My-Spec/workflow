@@ -20,8 +20,7 @@ defmodule Workflow.Run do
   @templates %{
     "issue" => Workflow.Issue,
     "story" => Workflow.Story,
-    "journey" => Workflow.Journey,
-    "devops" => Workflow.Devops
+    "journey" => Workflow.Journey
   }
 
   @doc "The kinds of work there is a template for."
@@ -257,13 +256,11 @@ defmodule Workflow.Run do
   end
 
   # A system step runs only on a clean tree, and the work is read again after it.
-  # One the template stops at (a DevOps work's refused resolve) is not run again.
   defp advance(template, %{"id" => id, "root" => root} = work) do
     snapshot = snapshot(template, work)
 
     case Workflow.current(template, snapshot) do
-      %{actor: :system, name: name} = step
-      when not snapshot.dirty? and not is_map_key(step, :stop) ->
+      %{actor: :system, name: name} when not snapshot.dirty? ->
         Logger.info("[Workflow #{id}] #{name}")
         say(work, "#{name} started")
         report(work)
