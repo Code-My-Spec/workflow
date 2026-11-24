@@ -320,7 +320,7 @@ defmodule Workflow.Manager do
 
   # What a work is handed in with: the old text and criteria (a journey's stages),
   # or a story's own shape.
-  @handed_in ~w(kind id text criteria stages title workflow story_id story rules questions skills)
+  @handed_in ~w(kind id text criteria stages title workflow story_id story rules questions skills action environment)
 
   defp hand_in(manager) do
     Alloy.Tool.inline(
@@ -328,8 +328,9 @@ defmodule Workflow.Manager do
       description:
         "Hand a work in: an issue (with text) for a fault, a story for something new (with " <>
           "title, workflow, story, rules with their scenarios, and questions), a journey " <>
-          "(with stages). A story already in the repository is handed in by its id alone, " <>
-          "with `at` the commit to read it at.",
+          "(with stages), or a devops work (with action and environment) that runs the " <>
+          "project's devops.yml through the DevOps plugin's scripts. A story already in the " <>
+          "repository is handed in by its id alone, with `at` the commit to read it at.",
       input_schema: %{
         type: "object",
         properties:
@@ -450,6 +451,28 @@ defmodule Workflow.Manager do
 
       {false, {:none, _path}} ->
         with_stages(work)
+    end
+  end
+
+  # A devops work names its action and environment, and its project's devops.yml
+  # resolves to the plugin's scripts, every line, before anything runs.
+  defp by_id(%{"kind" => "devops", "id" => id} = work, manager, _pin) do
+    dir = Path.join(manager["repo"] || ".", manager["project"] || ".")
+
+    cond do
+      work["action"] not in ["check", "apply"] ->
+        {:refused,
+         "Refused: devops work #{id} needs an action, check or apply. Nothing was started."}
+
+      not is_binary(work["environment"]) or work["environment"] == "" ->
+        {:refused,
+         "Refused: devops work #{id} needs an environment (uat, ...). Nothing was started."}
+
+      true ->
+        case Workflow.Devops.resolve(dir, work["environment"]) do
+          {:ok, _steps} -> work
+          {:refused, why} -> {:refused, "Refused: #{why}. Nothing was started."}
+        end
     end
   end
 
@@ -679,7 +702,16 @@ defmodule Workflow.Manager do
           required: ["rule", "scenarios"]
         }
       },
-      questions: %{type: "array", items: %{type: "string"}}
+      questions: %{type: "array", items: %{type: "string"}},
+      action: %{
+        type: "string",
+        enum: ["check", "apply"],
+        description: "A devops work: check runs every probe, apply each apply then its probe"
+      },
+      environment: %{
+        type: "string",
+        description: "A devops work: the environment whose devops.yml lines it runs (uat, ...)"
+      }
     }
   end
 
