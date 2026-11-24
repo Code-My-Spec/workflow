@@ -3,10 +3,10 @@ defmodule Workflow.Report do
   The whole current picture of one work, as the loop reports it to the server
   (`Workflow.Server` pushes it as `"report"` on `loop:<project_id>`). Every kind
   reports in one shape; its steps and who acts on each come from the work's own
-  template. The loop only sends: nothing is replayed or read back, and a report
-  that cannot be made or sent is logged and never stops a step. A work's last
-  report (`ended/3`) is the one kept when it cannot be sent, and sent at the
-  next join (see `Workflow.Server`), since no file is left to report it again.
+  template. The loop only sends: nothing is read back, and a report that cannot
+  be made is logged and never stops a step. One that cannot be sent is kept,
+  the newest a work, and sent at the next join (see `Workflow.Server`).
+  A work's last report is `ended/3`'s.
   """
 
   require Logger
@@ -15,16 +15,21 @@ defmodule Workflow.Report do
 
   @doc """
   Hands the report of the work `id` checked out at `root` to the loop's line to
-  the server, where there is one. Called by `Workflow.Checkout.record/4` alone.
+  the server, where there is one. Called by `Workflow.Checkout.record/4` (a
+  step's result, an event) and by `Workflow.Run` (a hand-in, entering a step,
+  a wait on the owner), so every change of a work's step or status is sent.
   """
   @spec recorded(String.t(), String.t()) :: :ok
   def recorded(root, id) do
-    # Made in a process of its own: the step never waits on it or fails with it,
-    # and `Workflow.Run.look/1` reads the checkout's lock as someone else's.
+    # Made in a process of its own, so a report never fails the step, and
+    # `Workflow.Run.look/1` reads the checkout's lock as someone else's. Waited
+    # on, as `ended/3` waits: reports leave in the order the work changed, so
+    # the newest picture is the last, and none comes after a work's last report.
     if server = Process.whereis(Workflow.Server) do
-      Task.start(fn ->
-        if report = safely(fn -> of(root, id) end), do: send(server, {:report, report})
-      end)
+      task = Task.async(fn -> safely(fn -> of(root, id) end) end)
+
+      with {:ok, %{} = report} <- Task.yield(task, 60_000) || Task.shutdown(task, :brutal_kill),
+           do: send(server, {:report, report})
     end
 
     :ok

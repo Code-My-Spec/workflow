@@ -429,7 +429,7 @@ defmodule Workflow.Checkout do
       &Map.update(&1, head, %{step => result}, fn at -> Map.put(at, step, result) end)
     )
 
-    # The one point a report is sent from: the work's whole picture, to the server.
+    # A step's result, or an event, changes the work: its whole picture, to the server.
     Workflow.Report.recorded(root, id)
   end
 
