@@ -103,7 +103,13 @@ defmodule Workflow.Manager do
          {:ok, own} <-
            Workflow.Skills.find(get_in(manager, ["agent", "skills"]), repo(manager)),
          skills = plugin ++ own do
-      messages = bounded(remembered())
+      {kept, session} = remembered()
+      provider = Agents.resume(provider, session)
+
+      # A resumed session sends only the new message, so the whole kept list is
+      # what its prefix is checked against; bounding it would send every turn fresh.
+      messages =
+        if match?({_module, %{provider_state: _}}, provider), do: kept, else: bounded(kept)
       conversation = Workflow.Conversation.path(manager["repo"], "manager")
       who = %{work: nil, step: nil, role: :manager}
       # Its own tools, and the plugin's MCP servers' beside them.
@@ -127,7 +133,7 @@ defmodule Workflow.Manager do
 
       case result do
         {:ok, said} ->
-          remember(said.messages)
+          remember(said.messages, Agents.session(said))
           said.text || ""
 
         {:error, said} ->
@@ -163,12 +169,18 @@ defmodule Workflow.Manager do
 
   defp remembered do
     case File.read(file()) do
-      {:ok, kept} -> :erlang.binary_to_term(kept)
-      {:error, _none} -> []
+      {:ok, kept} -> kept |> :erlang.binary_to_term() |> session()
+      {:error, _none} -> {[], nil}
     end
   end
 
-  defp remember(messages), do: File.write!(file(), :erlang.term_to_binary(messages))
+  # With the Claude Code session it ended in, so the next turn resumes it; a
+  # file from before sessions were kept is the bare message list.
+  defp session({messages, session}), do: {messages, session}
+  defp session(messages), do: {messages, nil}
+
+  defp remember(messages, session),
+    do: File.write!(file(), :erlang.term_to_binary({messages, session}))
 
   # What of the kept conversation fits the context, in bytes of its messages as
   # kept: about 100k tokens at four bytes a token, under every model's context.

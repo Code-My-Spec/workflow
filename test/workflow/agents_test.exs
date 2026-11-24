@@ -56,6 +56,33 @@ defmodule Workflow.AgentsTest do
     assert opts[:context][:bash_env]["AGENT_BROWSER_SESSION"] == "dog-list"
   end
 
+  test "a work's agent resumes the Claude Code session its last step ended in", %{tmp_dir: dir} do
+    test = self()
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: dir)
+    session = %{session_id: "s1", sent_upto: 1, prefix_hash: 7}
+
+    Application.put_env(:workflow, :alloy_run, fn message, opts ->
+      send(test, {:provider, opts[:provider]})
+      kept = opts[:messages] ++ [%{role: :user, content: message}]
+      {:ok, %{status: :completed, turns: 1, messages: kept, metadata: %{provider_state: session}}}
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:workflow, :alloy_run)
+      Agents.forget("resumed")
+    end)
+
+    step = %{name: "work", actor: :coder, note: "Fix it.", agent: %{tools: [], brief: "Fix it."}}
+    work = %{"id" => "resumed", "root" => dir, "agent" => %{"provider" => "claude-code"}}
+
+    Agents.run(step, work)
+    assert_receive {:provider, {AlloyClaudeCode, first}}, 1_000
+    refute Map.has_key?(first, :provider_state)
+
+    Agents.run(step, work)
+    assert_receive {:provider, {AlloyClaudeCode, %{provider_state: ^session}}}, 1_000
+  end
+
   test "browser-for-pages: criterion 2 agents of two works see two different AGENT_BROWSER_SESSION values",
        %{tmp_dir: dir} do
     test = self()

@@ -1034,6 +1034,27 @@ defmodule Workflow.ManagerTest do
     assert_received {:ran, "two", [%{role: :user, content: "one"}]}
   end
 
+  test "a manager turn resumes the Claude Code session the turn before ended in", %{tmp_dir: dir} do
+    configure(@manager, dir)
+    test = self()
+    session = %{session_id: "s1", sent_upto: 2, prefix_hash: 7}
+
+    Application.put_env(:workflow, :manager_run, fn message, opts ->
+      send(test, {:ran, message, opts[:provider]})
+      kept = opts[:messages] ++ [%{role: :user, content: message}]
+      {:ok, %{text: "ok", messages: kept, metadata: %{provider_state: session}}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :manager_run) end)
+
+    assert Workflow.Manager.tell("one") == "ok"
+    assert_received {:ran, "one", {AlloyClaudeCode, first}}
+    refute Map.has_key?(first, :provider_state)
+
+    assert Workflow.Manager.tell("two") == "ok"
+    assert_received {:ran, "two", {AlloyClaudeCode, %{provider_state: ^session}}}
+  end
+
   test "manager: criterion 3", %{tmp_dir: dir} do
     repo = Path.join(dir, "repo")
     agents = %{"coder" => %{"provider" => "claude-code"}}

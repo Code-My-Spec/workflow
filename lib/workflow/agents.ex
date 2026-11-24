@@ -70,7 +70,8 @@ defmodule Workflow.Agents do
 
     # shortcut: the conversations are this process's, so a restart starts every
     # agent cold; keep them with the work's results when that costs something.
-    said = Agent.get(__MODULE__, &Map.get(&1, {id, step.actor}, []))
+    {said, session} = Agent.get(__MODULE__, &Map.get(&1, {id, step.actor}, {[], nil}))
+    provider = resume(provider, session)
     snapshot = Checkout.snapshot(root, id)
 
     # `Alloy.run/2`, or what a test puts in its place.
@@ -129,8 +130,8 @@ defmodule Workflow.Agents do
         _no_words -> review
       end
 
-    with {_status, %{messages: messages}} <- result,
-         do: Agent.update(__MODULE__, &Map.put(&1, {id, step.actor}, messages))
+    with {_status, %{messages: messages} = ran} <- result,
+         do: Agent.update(__MODULE__, &Map.put(&1, {id, step.actor}, {messages, session(ran)}))
 
     Logger.info("[Workflow #{id}] #{step.name} ended: #{outcome(result)} #{inspect(review)}")
 
@@ -213,6 +214,21 @@ defmodule Workflow.Agents do
       })
 
   defp resumed(config, _none), do: config
+
+  @doc """
+  A Claude Code provider carrying the session its last run ended in, so the next
+  run goes out with `--resume` and only its new messages; any other unchanged.
+  """
+  @spec resume({module(), map()}, map() | nil) :: {module(), map()}
+  def resume({AlloyClaudeCode, config}, %{session_id: "" <> _} = session),
+    do: {AlloyClaudeCode, Map.put(config, :provider_state, session)}
+
+  def resume(provider, _session), do: provider
+
+  @doc "The provider session a run ended in, nil when it has none."
+  @spec session(map()) :: map() | nil
+  def session(%{metadata: %{provider_state: %{session_id: "" <> _} = state}}), do: state
+  def session(_ran), do: nil
 
   @doc "Forgets every agent of a work that is done."
   @spec forget(String.t()) :: :ok
