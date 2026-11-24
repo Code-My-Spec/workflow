@@ -195,9 +195,9 @@ defmodule Workflow.Server do
   end
 
   # A work's whole picture (`Workflow.Report`). A send that fails is logged and
-  # dropped: the next report says it all again. A work's last report (its status
-  # done, stopped or released, see `Workflow.Report.ended/3`) has no next: it is
-  # kept, the newest a work, and sent at the next join (`handle_join/3`).
+  # kept, the newest a work, in the order the works last changed, and sent at
+  # the next join (`handle_join/3`). Seen live: a picture dropped while the line
+  # was down left the server showing a work at a step it had left.
   # A server that does not take reports (see `handle_topic_close/3`) is sent none.
   def handle_info({:report, _report}, %{assigns: %{no_reports: true}} = socket),
     do: {:noreply, socket}
@@ -213,9 +213,10 @@ defmodule Workflow.Server do
     end
   end
 
-  defp kept(socket, %{"status" => status, "work" => work} = report)
-       when status in ["done", "stopped", "released"],
-       do: assign(socket, :ended, Map.put(socket.assigns[:ended] || %{}, work, report))
+  defp kept(socket, %{"status" => _, "work" => work} = report) do
+    kept = Enum.reject(socket.assigns[:kept] || [], &(&1["work"] == work))
+    assign(socket, :kept, kept ++ [report])
+  end
 
   defp kept(socket, _report), do: socket
 
@@ -265,16 +266,17 @@ defmodule Workflow.Server do
   @impl Slipstream
   def handle_join(topic, _reply, socket) do
     Logger.info("[Workflow.Server] joined #{topic}")
-    # Each join, first or again, reports every work in flight; the first also
-    # every journey file with no work, as not started; and each last report of a
-    # work that ended while the line was down, once.
+    # Each join, first or again, sends once each report kept while the line was
+    # down, then reports every work in flight as it is now, so a work's newest
+    # picture is its last; the first join also every journey file with no work,
+    # as not started.
     started = if socket.assigns[:started], do: [], else: Workflow.Report.unstarted(repo())
-    ended = Map.values(socket.assigns[:ended] || %{})
+    kept = socket.assigns[:kept] || []
 
-    for report <- Workflow.Report.in_flight() ++ ended ++ started,
+    for report <- kept ++ Workflow.Report.in_flight() ++ started,
         do: send(self(), {:report, report})
 
-    {:ok, assign(socket, started: true, ended: %{})}
+    {:ok, assign(socket, started: true, kept: [])}
   end
 
   # The repository works are cut from, the manager's.

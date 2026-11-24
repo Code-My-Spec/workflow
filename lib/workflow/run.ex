@@ -263,6 +263,7 @@ defmodule Workflow.Run do
       %{actor: :system, name: name} when not snapshot.dirty? ->
         Logger.info("[Workflow #{id}] #{name}")
         say(work, "#{name} started")
+        report(work)
         result = template.perform(name, work, snapshot)
         Checkout.record(root, id, name, result)
         say(work, "#{name}: #{result["status"]}")
@@ -424,6 +425,7 @@ defmodule Workflow.Run do
     # killed or timed out mid-step took `just` down with it, and nothing was said.
     with %{} <- prepared(work),
          _said <- say(work, "handed in"),
+         :ok <- report(work),
          nil <- landed,
          nil <- kept_turn(turn, work),
          %{} = step <- system_step(work) do
@@ -669,6 +671,7 @@ defmodule Workflow.Run do
     if times < 3, do: say(work, "#{step.name} started (#{step.actor})")
     # Whose turn it is, kept in flight so a restart gives it back (see `kept_turn/2`).
     fly(Map.put(work, "turn", %{"step" => step.name, "note" => step.note}))
+    report(work)
 
     case times < 3 && agent_turn(step, work) do
       false ->
@@ -763,8 +766,14 @@ defmodule Workflow.Run do
     reason = "waiting on its owner: #{why}"
     Logger.warning("[Workflow #{id}] #{step.name} #{reason}")
     Checkout.stop(root, id, step.name, reason)
+    report(work)
     land(work, landed(%{step | note: why}))
   end
+
+  # A change of step or status a recorded result does not send (a hand-in,
+  # entering a step, a wait on the owner): the work's whole picture, to the
+  # server. A stop and the end send the last report (`unfly/2`).
+  defp report(%{"root" => root, "id" => id}), do: Workflow.Report.recorded(root, id)
 
   # An agent's last words, said in a stop note.
   defp told(nil), do: ""
