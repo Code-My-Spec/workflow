@@ -58,6 +58,30 @@ defmodule Workflow.JourneyTest do
     assert note =~ "demo"
   end
 
+  test "journey-demo-can-be-seen: criterion 1 - a demo that left nothing to see points the owner at the checkout and its branch" do
+    found = %{
+      "run" => %{"status" => "passed"},
+      "certify" => %{"status" => "passed"},
+      "review" => %{"status" => "pass"},
+      "demo" => %{"status" => "passed", "dir" => "/a/analysis/h/demo"}
+    }
+
+    assert %{name: "approve", actor: :owner, note: note} =
+             Workflow.current(Journey, %{
+               id: "j1",
+               head: "h",
+               main: "trunk",
+               stages: ["the user signs up"],
+               named: [1],
+               results: %{"h" => found},
+               checkout: "/a/checkout",
+               demo_files: []
+             })
+
+    assert note =~ "`/a/checkout`"
+    assert note =~ "branch `journey/j1`"
+  end
+
   test "the owner approves the demo, and the journey moves on to promote" do
     found = %{
       "run" => %{"status" => "passed"},

@@ -122,18 +122,21 @@ defmodule Workflow.Journey do
     do:
       dir |> Path.join("**/*") |> Path.wildcard() |> Enum.filter(&File.regular?/1) |> Enum.sort()
 
-  # Where the owner sees the demo: what `just demo` left, or, with no recipe, the checkout.
+  # Where the owner sees the demo: what `just demo` left, or, with nothing left to
+  # see (no recipe, or a recipe that left nothing), the checkout and its branch.
   defp demo(snapshot) do
     case {Parts.found(snapshot, "demo"), snapshot[:demo_files] || []} do
       {%{"status" => "none"}, _files} ->
-        "The project has no `demo` recipe, so none was made: the work is in " <>
-          "`#{snapshot[:checkout]}`, on branch `journey/#{snapshot.id}`."
+        "The project has no `demo` recipe, so none was made: " <> checkout(snapshot)
 
       {found, []} ->
-        "`just demo` left nothing in `#{found["dir"]}`."
+        "`just demo` left nothing in `#{found["dir"]}`: " <> checkout(snapshot)
 
       {_found, files} ->
         "`just demo` left: " <> Enum.map_join(files, ", ", &"`#{&1}`") <> "."
     end
   end
+
+  defp checkout(snapshot),
+    do: "the work is in `#{snapshot[:checkout]}`, on branch `journey/#{snapshot.id}`."
 end
