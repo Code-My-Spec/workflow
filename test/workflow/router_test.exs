@@ -880,7 +880,11 @@ defmodule Workflow.RouterTest do
              call_tool("/mcp/manager", 4, "look", %{"id" => "x1", "kind" => "issue"})
 
     assert %{"result" => %{"content" => [%{"text" => "x2: queued: " <> queued}]}} =
-             call_tool("/mcp/manager", 5, "hand_in", %{"id" => "x2", "kind" => "issue"})
+             call_tool("/mcp/manager", 5, "hand_in", %{
+               "id" => "x2",
+               "kind" => "issue",
+               "text" => "broken"
+             })
 
     assert queued =~ "at the cap of 0"
 

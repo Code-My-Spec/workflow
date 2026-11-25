@@ -103,4 +103,56 @@ defmodule Workflow.IssueHandInAgainTest do
     assert said =~ ~r/^i1: on fix \(coder\)/
     assert File.read!(file) == recorded
   end
+
+  test "issue-hand-in-reads-its-file: criterion 1 an issue handed in by id alone starts a work carrying its recorded file's text and criteria; criterion 3 one handed in with full text that differs is still refused",
+       %{repo: repo, hand_in: hand_in} do
+    issue = %{
+      "kind" => "issue",
+      "id" => "i2",
+      "title" => "Recorded issue",
+      "text" => "Fault: the recorded direction.\n\nFix: read the file.",
+      "criteria" => ["1. It reads the file.", "2. It names the id: i2."]
+    }
+
+    file = Path.join([repo, "proj", "issues", "i2.yml"])
+    File.mkdir_p!(Path.dirname(file))
+    File.write!(file, Workflow.StoryFile.yaml(issue))
+    git(repo, ~w(add -A))
+    git(repo, ~w(commit -m recorded))
+    recorded = File.read!(file)
+
+    # Handed in again with other text: refused, as before.
+    other = Map.put(issue, "text", "Fault: a new direction.")
+    assert {:ok, refused} = hand_in.execute.(other, %{})
+    assert refused =~ ~r/differs from the recorded file/
+    refute_receive {:agent, _step, _id, _text}, 500
+    assert works() == []
+
+    # By its id alone: started, carrying the file's text and criteria.
+    assert {:ok, said} = hand_in.execute.(%{"kind" => "issue", "id" => "i2"}, %{})
+    refute said =~ ~r/^Refused/
+    assert_receive {:agent, "fix", "i2", text}, 15_000
+    assert text == issue["text"]
+
+    [path] = works()
+    work = path |> File.read!() |> Jason.decode!()
+    assert work["criteria"] == issue["criteria"]
+    assert work["title"] == issue["title"]
+    assert File.read!(file) == recorded
+  end
+
+  test "issue-hand-in-reads-its-file: criterion 2 an issue handed in by an id with no recorded file is refused naming the id and the path, and nothing starts",
+       %{repo: repo, hand_in: hand_in} do
+    log = git(repo, ~w(log --format=%H))
+
+    assert {:ok, refused} = hand_in.execute.(%{"kind" => "issue", "id" => "nope"}, %{})
+    assert refused =~ ~r/^Refused: /
+    assert refused =~ "nope"
+    assert refused =~ "proj/issues/nope.yml"
+
+    refute_receive {:agent, _step, _id, _text}, 500
+    assert works() == []
+    assert git(repo, ~w(log --format=%H)) == log
+    refute File.exists?(Path.join([repo, "proj", "issues", "nope.yml"]))
+  end
 end

@@ -489,6 +489,56 @@ defmodule Workflow.RunTest do
     refute File.exists?(Path.join(works_dir, "i1.json"))
   end
 
+  test "system-steps-outlive-their-caller: criterion 3 - a work kept in flight before its first system step is resumed after a restart",
+       %{tmp_dir: dir} do
+    works_dir = works_dir(dir)
+    work = checkout(dir, 1, 0)
+    stand_in = Application.get_env(:workflow, :cmd)
+    test = self()
+
+    # The first certify hangs, as one cut short by the service going down does.
+    Application.put_env(:workflow, :cmd, fn
+      "just", ["certify" | _], _opts ->
+        send(test, {:certifying, self()})
+        receive do: (:never -> {"", 1})
+
+      command, args, opts ->
+        stand_in.(command, args, opts)
+    end)
+
+    capture_log(fn ->
+      assert {%{name: "certify"}, "started"} = Workflow.Run.start(work)
+      assert_receive {:certifying, certifying}, 2_000
+
+      # The service goes down: the watcher and its turns die with no stop said.
+      # The watcher is the one unnamed process monitoring them (`:global` is named).
+      {:monitored_by, watchers} = Process.info(certifying, :monitored_by)
+
+      for pid when is_pid(pid) <- watchers,
+          pid != self(),
+          Process.info(pid, :registered_name) == {:registered_name, []},
+          do: Process.exit(pid, :kill)
+      ref = Process.monitor(certifying)
+      Process.exit(certifying, :kill)
+      assert_receive {:DOWN, ^ref, :process, _pid, :killed}, 2_000
+
+      assert File.exists?(Path.join(works_dir, "i1.json"))
+      assert Workflow.Run.look(work).found["certify"] == nil
+
+      # Restarted, certify now passes.
+      Application.put_env(:workflow, :cmd, fn
+        "just", ["certify" | _], _opts -> {"1 test", 0}
+        command, args, opts -> stand_in.(command, args, opts)
+      end)
+
+      assert :ok = Workflow.Run.resume()
+      settled()
+    end)
+
+    assert %{"status" => "passed"} = Workflow.Run.look(work).found["certify"]
+    assert %{step: "review"} = Workflow.Run.look(work)
+  end
+
   test "system-steps-outlive-their-caller: a system step that raises leaves the work stopped with the reason",
        %{tmp_dir: dir} do
     works_dir(dir)
