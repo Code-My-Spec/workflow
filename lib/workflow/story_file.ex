@@ -130,7 +130,9 @@ defmodule Workflow.StoryFile do
     end
   end
 
-  defp read(yml), do: yml |> String.split("\n") |> read_fields(%{}) |> own_id() |> as_journey()
+  @doc "A recorded file's YAML read back into the fields `yaml/1` writes."
+  @spec read(String.t()) :: map()
+  def read(yml), do: yml |> String.split("\n") |> read_fields(%{}) |> own_id() |> as_journey()
 
   # A file in the story's shape (no `kind:`) holds the story's own id as `id:`;
   # the work's id stays its file name, so the story's is kept as `story_id`.
