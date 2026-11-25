@@ -788,16 +788,17 @@ defmodule Workflow.Manager do
       },
       execute: fn %{"id" => id, "kind" => kind} = input, _context ->
         # Handed in again as it was kept, so its text and criteria go with the decision.
-        # Only a work with a checkout, of a kind whose steps include the owner's
-        # `approve`, can wait on its demo; any other id is refused, not started or resumed.
-        case checkout(manager, id) && demo?(kind) && Checkout.snapshot(root(manager, id), id) do
-          %{} ->
-            Checkout.kept(root(manager, id), id)
-            |> Map.drop(["review", "demo", "note"])
-            |> Map.merge(Map.take(input, ["id", "kind", "demo", "note"]))
-            |> Map.merge(configured_for(manager))
-            |> resumed()
-
+        # Only a work kept as this kind, whose own step is the owner's `approve`,
+        # waits on its demo; any other id is refused, not started or resumed.
+        with true <- checkout(manager, id),
+             %{"kind" => ^kind} = kept <- Checkout.kept(root(manager, id), id),
+             true <- awaiting_demo?(manager, kind, id) do
+          kept
+          |> Map.drop(["review", "demo", "note"])
+          |> Map.merge(Map.take(input, ["id", "kind", "demo", "note"]))
+          |> Map.merge(configured_for(manager))
+          |> resumed()
+        else
           _none ->
             {:ok,
              "Refused: there is no work #{id} waiting on its owner's demo. " <>
@@ -805,6 +806,13 @@ defmodule Workflow.Manager do
         end
       end
     )
+  end
+
+  # The work's own step, read with nothing run and configured as it would be
+  # resumed: it waits on its demo only at the owner's `approve`.
+  defp awaiting_demo?(manager, kind, id) do
+    work = %{"id" => id, "kind" => kind, "root" => root(manager, id)}
+    match?(%{step: "approve"}, Run.look(Map.merge(configured_for(manager), work)))
   end
 
   defp look(manager) do
@@ -851,14 +859,6 @@ defmodule Workflow.Manager do
   end
 
   defp root(manager, id), do: Checkout.root(manager["repo"], id)
-
-  # Whether a kind of work has a demo for its owner to decide on: an `approve` step.
-  defp demo?(kind) do
-    case Run.template(kind) do
-      nil -> false
-      template -> Enum.any?(Workflow.Template.steps(template), &(&1.name == "approve"))
-    end
-  end
 
   # A work's checkout is taken away when it lands, and the manager is told so
   # right after: nothing is run from it then, since spawn prints "Could not cd

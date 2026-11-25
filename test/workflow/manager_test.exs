@@ -1156,9 +1156,13 @@ defmodule Workflow.ManagerTest do
       Path.join([dir, "workflow", "j1.json"]),
       Jason.encode!(%{
         "work" => kept,
-        # Its ci already in, so the journey lands done once it is promoted.
+        # Run, certified, reviewed and demoed: at its owner's approve. Its ci
+        # already in, so the journey lands done once it is promoted.
         "t1" => %{
+          "run" => %{"status" => "passed"},
+          "certify" => %{"status" => "passed"},
           "review" => %{"status" => "pass"},
+          "demo" => %{"status" => "passed"},
           "ci" => %{"event" => "ci", "verdict" => "green"}
         }
       })
@@ -1505,14 +1509,31 @@ defmodule Workflow.ManagerTest do
     assert Path.wildcard(Path.join(dir, "**/*ghost*"), match_dot: true) == []
   end
 
-  test "decide-refuses-unknown-id: decide on a work with a checkout that is not waiting on its demo is refused, naming it, and resumes nothing",
+  test "decide-refuses-unknown-id: decide on a journey with a checkout that is at its review, not its demo, is refused, naming it, and resumes nothing",
        %{tmp_dir: dir} do
     repo = Path.join(dir, "repo")
     configure(Map.put(@manager, "repo", repo), dir)
     test = self()
 
-    # The work has a checkout, yet it is an issue at its coder's step, not at its demo.
-    File.mkdir_p!(Workflow.Checkout.root(repo, "busy"))
+    # A journey, whose steps have the owner's approve, with a checkout: its stage
+    # named, tested and certified, but not yet reviewed, so not at its demo.
+    root = Workflow.Checkout.root(repo, "busy")
+    File.mkdir_p!(Path.join([root, "workflow", "test"]))
+
+    File.write!(
+      Path.join([root, "workflow", "test", "journey_test.exs"]),
+      "test \"busy: stage 1\" do\nend\n"
+    )
+
+    File.mkdir_p!(Path.join(dir, "workflow"))
+
+    File.write!(
+      Path.join([dir, "workflow", "busy.json"]),
+      Jason.encode!(%{
+        "work" => %{"kind" => "journey", "id" => "busy", "stages" => ["the user signs up"]},
+        "t0" => %{"run" => %{"status" => "passed"}, "certify" => %{"status" => "passed"}}
+      })
+    )
 
     Application.put_env(:workflow, :cmd, fn command, args, _opts ->
       send(test, {command, args})
@@ -1548,7 +1569,7 @@ defmodule Workflow.ManagerTest do
 
     capture_log(fn ->
       assert {:ok, said} =
-               decide.execute.(%{"id" => "busy", "kind" => "issue", "demo" => "approve"}, %{})
+               decide.execute.(%{"id" => "busy", "kind" => "journey", "demo" => "approve"}, %{})
 
       send(test, {:said, said})
       refute_receive {:agent, _work}, 500
