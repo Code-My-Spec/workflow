@@ -1,0 +1,15 @@
+id: "parked-works-free-their-slot"
+kind: "issue"
+title: Parked works free their slot
+text: |-
+  Slice 4 of the epic "Works, workflows and the queue" (loop side).
+
+  Fault today: a work that is waiting on a person (waiting on its owner, a demo to decide, an owner's answer) or on CI (the external ci step) still holds one of the loop's slots. With the cap full of such works, nothing else can start, even though no agent is running.
+
+  Wanted: a work waiting on a person or on CI is parked. A parked work holds no slot and doesn't count toward the cap. When what it waits on arrives (the owner's answer or tell, a decision, the ci event), it resumes into the next free slot. If no slot is free, it waits until one frees, and nothing already running is interrupted. Parking and resuming keep the work's step, notes and history unchanged. If the loop reports a work's state to the server, a parked work is reported as parked.
+
+  Checks: tests with any server stubbed, never the real ~/.workflow or .git/workflow, with a fake agents run. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "With the cap full and one work waiting on a person, a newly handed-in work still starts."
+  - "A work waiting at the ci step holds no slot: another work starts in its place."
+  - "When a parked work's answer arrives and a slot is free, it resumes at the step it was parked on; when no slot is free, it resumes as soon as one frees."
