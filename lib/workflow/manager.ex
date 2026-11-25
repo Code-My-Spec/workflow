@@ -237,15 +237,15 @@ defmodule Workflow.Manager do
   end
 
   # Stops a work for good: no agent runs on it again and it never promotes; its
-  # checkout and branch are taken away, and its story or issue file is removed
-  # from the main copy in a commit of its own.
+  # checkout and branch are taken away. An issue's file is removed from the main
+  # copy in a commit of its own; a story's file on main is never touched.
   defp stop(manager) do
     Alloy.Tool.inline(
       name: "stop",
       description:
         "Stop a work for good: no agent runs on it again and it never promotes. Its " <>
-          "checkout and branch are removed, and its story or issue file is removed from " <>
-          "the main copy, committed.",
+          "checkout and branch are removed. An issue's file is removed from the main " <>
+          "copy, committed; a story's file on main is left as it is.",
       input_schema: %{
         type: "object",
         properties: %{id: %{type: "string"}, kind: %{type: "string", enum: Run.kinds()}},
@@ -257,15 +257,16 @@ defmodule Workflow.Manager do
         if is_binary(repo) and File.exists?(Path.join(repo, ".git")) do
           work = Map.merge(%{"kind" => kind, "id" => id}, configured_for(manager))
           Run.cancel(work)
-          # Where its file is kept: a story's or journey's as one handed in with a text.
-          path =
-            if kind == "issue",
-              do: Workflow.StoryFile.issue_path(work),
-              else: Workflow.StoryFile.path(Map.put(work, "text", ""), repo)
 
-          case Checkout.remove_files(repo, [path], "#{kind} #{id}: stopped, its file removed") do
-            {:error, why} -> {:ok, "#{id}: stopped, but #{path} not removed: #{inspect(why)}"}
-            _removed -> {:ok, "#{id}: stopped. Its checkout, branch and file are removed."}
+          if kind == "issue" do
+            path = Workflow.StoryFile.issue_path(work)
+
+            case Checkout.remove_files(repo, [path], "#{kind} #{id}: stopped, its file removed") do
+              {:error, why} -> {:ok, "#{id}: stopped, but #{path} not removed: #{inspect(why)}"}
+              _removed -> {:ok, "#{id}: stopped. Its checkout, branch and file are removed."}
+            end
+          else
+            {:ok, "#{id}: stopped. Its checkout and branch are removed; its file is kept."}
           end
         else
           {:ok, "Refused: #{inspect(repo)} is not a git checkout. Nothing was stopped."}
