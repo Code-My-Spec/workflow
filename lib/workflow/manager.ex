@@ -786,10 +786,11 @@ defmodule Workflow.Manager do
         },
         required: ["id", "kind", "demo"]
       },
-      execute: fn %{"id" => id} = input, _context ->
+      execute: fn %{"id" => id, "kind" => kind} = input, _context ->
         # Handed in again as it was kept, so its text and criteria go with the decision.
-        # An id with no checkout has no work waiting on its demo: refused, not started.
-        case checkout(manager, id) && Checkout.snapshot(root(manager, id), id) do
+        # Only a work with a checkout, of a kind whose steps include the owner's
+        # `approve`, can wait on its demo; any other id is refused, not started or resumed.
+        case checkout(manager, id) && demo?(kind) && Checkout.snapshot(root(manager, id), id) do
           %{} ->
             Checkout.kept(root(manager, id), id)
             |> Map.drop(["review", "demo", "note"])
@@ -850,6 +851,14 @@ defmodule Workflow.Manager do
   end
 
   defp root(manager, id), do: Checkout.root(manager["repo"], id)
+
+  # Whether a kind of work has a demo for its owner to decide on: an `approve` step.
+  defp demo?(kind) do
+    case Run.template(kind) do
+      nil -> false
+      template -> Enum.any?(Workflow.Template.steps(template), &(&1.name == "approve"))
+    end
+  end
 
   # A work's checkout is taken away when it lands, and the manager is told so
   # right after: nothing is run from it then, since spawn prints "Could not cd

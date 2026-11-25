@@ -1504,4 +1504,61 @@ defmodule Workflow.ManagerTest do
     refute File.exists?(Path.join(dir, "works"))
     assert Path.wildcard(Path.join(dir, "**/*ghost*"), match_dot: true) == []
   end
+
+  test "decide-refuses-unknown-id: decide on a work with a checkout that is not waiting on its demo is refused, naming it, and resumes nothing",
+       %{tmp_dir: dir} do
+    repo = Path.join(dir, "repo")
+    configure(Map.put(@manager, "repo", repo), dir)
+    test = self()
+
+    # The work has a checkout, yet it is an issue at its coder's step, not at its demo.
+    File.mkdir_p!(Workflow.Checkout.root(repo, "busy"))
+
+    Application.put_env(:workflow, :cmd, fn command, args, _opts ->
+      send(test, {command, args})
+
+      case {command, args} do
+        {"git", ["rev-parse", "HEAD^{tree}"]} -> {"t0\n", 0}
+        {"git", ["worktree" | _]} -> {"worktree /main copy\nHEAD abc\n", 0}
+        {"git", ["rev-parse", "--abbrev-ref", "HEAD"]} -> {"trunk\n", 0}
+        {"git", ["rev-list" | _]} -> {"0\n", 0}
+        {"git", ["rev-parse", "--path-format=absolute", "--git-common-dir"]} -> {dir <> "\n", 0}
+        {"git", ["rev-parse", "HEAD"]} -> {"c0\n", 0}
+        _other -> {"", 0}
+      end
+    end)
+
+    Application.put_env(:workflow, :agents_run, fn _step, work ->
+      send(test, {:agent, work})
+      {%{}, nil}
+    end)
+
+    Application.put_env(:workflow, :manager_run, fn _message, opts ->
+      send(test, {:tools, opts[:tools]})
+      {:ok, %{text: "", messages: []}}
+    end)
+
+    on_exit(fn ->
+      for key <- [:cmd, :agents_run, :manager_run], do: Application.delete_env(:workflow, key)
+    end)
+
+    Workflow.Manager.tell("go")
+    assert_received {:tools, tools}
+    decide = Enum.find(tools, &(&1.name == "decide"))
+
+    capture_log(fn ->
+      assert {:ok, said} =
+               decide.execute.(%{"id" => "busy", "kind" => "issue", "demo" => "approve"}, %{})
+
+      send(test, {:said, said})
+      refute_receive {:agent, _work}, 500
+    end)
+
+    assert_received {:said, said}
+    assert said =~ "Refused"
+    assert said =~ "busy"
+    refute_received {"git", ["branch" | _]}
+    refute_received {"git", ["commit" | _]}
+    refute File.exists?(Path.join(dir, "works"))
+  end
 end
