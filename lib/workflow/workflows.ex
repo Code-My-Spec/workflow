@@ -82,7 +82,8 @@ defmodule Workflow.Workflows do
   def load_file(file) do
     with {:ok, body} <- File.read(file),
          {:ok, %{"steps" => [_ | _] = steps} = data} <- Jason.decode(body),
-         :ok <- implemented(file, steps) do
+         :ok <- implemented(file, steps),
+         :ok <- verify_implemented(file, data["verify"]) do
       name = data["name"] || Path.basename(file, ".json")
       workflow = %{name: name, steps: Enum.map(steps, &step/1), file: file}
 
@@ -103,9 +104,14 @@ defmodule Workflow.Workflows do
     end
   end
 
-  @doc "The steps of the workflow named `name`, or raises naming its file."
+  @doc """
+  The steps of the workflow named `name`, or raises naming its file. One that
+  names a verify ends with a system step `verify`, run once at the end; with
+  none, the work is done when its last step is.
+  """
   def steps!(name) do
     case load(name) do
+      {:ok, %{steps: steps, verify: verify}} -> steps ++ [%{name: "verify", actor: :system, verify: verify}]
       {:ok, %{steps: steps}} -> steps
       {:error, message} -> raise ArgumentError, "workflow #{message}"
     end
@@ -123,6 +129,12 @@ defmodule Workflow.Workflows do
         {:error, "#{file}: a step with no name: #{inspect(other)}"}
     end
   end
+
+  defp verify_implemented(_file, nil), do: :ok
+  defp verify_implemented(_file, verify) when verify in @known, do: :ok
+
+  defp verify_implemented(file, verify),
+    do: {:error, "#{file}: names the verify #{inspect(verify)}, which the loop has no implementation for"}
 
   defp step(%{"name" => name, "actor" => actor} = step) do
     base = %{name: name, actor: String.to_atom(actor)}

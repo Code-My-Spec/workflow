@@ -40,11 +40,26 @@ defmodule Workflow.Template do
 
   @doc "What `step` needs given `snapshot`."
   @spec status(t(), step(), term()) :: status()
+  # A workflow's verify, run once at the end: done once it passed at the tree.
+  def status(_template, %{name: "verify", verify: _verify}, snapshot) do
+    case get_in(snapshot, [:results, snapshot[:head], "verify"]) do
+      nil -> %{}
+      %{"status" => status} when status in ["passed", "pass"] -> :done
+      found -> %{note: "The verify failed: #{found["note"] || found["status"]}", stop: true}
+    end
+  end
+
   def status({module, _kind}, step, snapshot), do: module.status(step, snapshot)
   def status(module, step, snapshot), do: module.status(step, snapshot)
 
   @doc "Does the system step `name` of `work`."
   @spec perform(t(), String.t(), map(), map()) :: map()
+  # The verify does what the step it names does, found by that name.
+  def perform(template, "verify", work, snapshot) do
+    %{verify: verify} = Enum.find(steps(template), &(&1.name == "verify"))
+    perform(template, verify, work, snapshot)
+  end
+
   def perform({module, _kind}, name, work, snapshot), do: module.perform(name, work, snapshot)
   def perform(module, name, work, snapshot), do: module.perform(name, work, snapshot)
 
