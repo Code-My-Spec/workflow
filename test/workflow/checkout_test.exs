@@ -137,7 +137,9 @@ defmodule Workflow.CheckoutTest do
       ])
 
     assert {:error, why} = Checkout.own(main, "issue", "i1", nil)
+    assert why =~ "`just copy-build` failed"
     assert why =~ "exit 4"
+    refute why =~ "copy-setup"
     refute File.dir?(main <> "-i1")
   end
 

@@ -100,22 +100,24 @@ defmodule Workflow.Checkout do
     here = Path.join(root, project || ".")
 
     case copy_setup(here) do
-      {_out, 0} ->
+      :ok ->
         File.rm(mark)
         root
 
-      {out, status} ->
+      {recipe, out, status} ->
         git(repo, ["worktree", "remove", "--force", root])
         git(repo, ["branch", "-D", "#{kind}/#{id}"])
         File.rm(mark)
 
         missing =
-          if out =~ "does not contain recipe", do: "this project has no copy-setup recipe. "
+          if missing?(out, recipe), do: "this project has no #{recipe} recipe. "
 
         {:error,
-         "#{missing}`just copy-setup` failed in #{project || "."} (exit #{status}): #{String.trim(out)}"}
+         "#{missing}`just #{recipe}` failed in #{project || "."} (exit #{status}): #{String.trim(out)}"}
     end
   end
+
+  defp missing?(out, recipe), do: out =~ "does not contain recipe `#{recipe}`"
 
   # Seen live: an app started from a fresh copy served no stylesheet (app.css 404),
   # since a new worktree has no built assets. After copy-setup, the project's own
@@ -124,16 +126,20 @@ defmodule Workflow.Checkout do
   defp copy_setup(here) do
     run = &cmd("just", [&1], cd: here, stderr_to_stdout: true, env: recipe_env([]))
 
-    with {_out, 0} <- run.("copy-setup") do
-      case run.("copy-build") do
-        {out, status} when status != 0 ->
-          if out =~ "does not contain recipe", do: {out, 0}, else: {out, status}
+    with {_out, 0} <- run.("copy-setup") |> failed("copy-setup"),
+         {_out, 0} <- run.("copy-build") |> failed("copy-build") do
+      :ok
+    else
+      {"copy-build", out, _status} = failure ->
+        if missing?(out, "copy-build"), do: :ok, else: failure
 
-        built ->
-          built
-      end
+      failure ->
+        failure
     end
   end
+
+  defp failed({_out, 0} = passed, _recipe), do: passed
+  defp failed({out, status}, recipe), do: {recipe, out, status}
 
   # The project's own `just copy-teardown`, before its copy is taken away: what
   # copy-setup made for it (a test database) goes with it. One that fails is
