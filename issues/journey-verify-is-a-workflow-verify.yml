@@ -1,0 +1,14 @@
+id: "journey-verify-is-a-workflow-verify"
+kind: "issue"
+title: A journey is done only when its walk passes, as its workflow's verify
+text: |-
+  Follow-on to workflows-are-data (737fe03), which added an optional `verify` to a workflow file: a final system step, so with no verify a work is done at its last step.
+
+  Wanted: the journey workflow's file (the owner calls it workflows/journey.yml; on main the loop's workflow files are in priv/workflows/, e.g. journey.json, so use whichever the journey workflow is actually read from) names the journey walk as its verify. A journey work therefore runs its walk as the final verify step, and it's done and lands only when the walk passes. A journey whose walk fails doesn't land; it goes back as a failed verify does today, with the walk's failure in the note.
+
+  First check main: if the journey workflow already runs its walk as verify, say so in the decision note, add the test below if it's missing, and build nothing else.
+
+  Checks: tests in tmp project dirs with a fake agents run and a fake walk (no real browser or app), any server stubbed, never the real ~/.workflow or .git/workflow. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "A journey work whose walk fails at its verify step does not land, and its note carries the walk's failure."
+  - "A journey work whose walk passes at its verify step lands as done."
