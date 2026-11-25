@@ -65,20 +65,43 @@ defmodule Workflow.StoryFile do
 
   @doc """
   The story recorded for the work's id at the commit `sha` of `repo`'s main copy
-  (`git show <sha>:<path>`), read at the first of `paths/1` there:
-  `{:ok, fields, path}`, or `{:none, paths}` when neither is at that commit.
+  (`git show <sha>:<path>`), read at the first of `paths/1` there, else at the
+  first `.yml` in either of their folders whose own `id:` is the work's id (a
+  file named by its slug): `{:ok, fields, path}`, or `{:none, paths}` when no
+  file there is that story at that commit.
   """
   @spec at(map(), String.t(), String.t()) ::
           {:ok, map(), String.t()} | {:none, [String.t()]}
-  def at(work, repo, sha) do
+  def at(%{"id" => id} = work, repo, sha) do
     paths = paths(work)
 
-    Enum.find_value(paths, {:none, paths}, fn path ->
+    Enum.find_value(paths, fn path ->
       case Workflow.Checkout.show(repo, sha, path) do
         {:ok, yml} -> {:ok, read(yml), path}
         _none -> nil
       end
-    end)
+    end) || holding(paths, id, repo, sha) || {:none, paths}
+  end
+
+  # A story file named by its slug: the first `.yml` in either folder whose own
+  # `id:` is the id handed in.
+  defp holding(paths, id, repo, sha) do
+    for path <- paths,
+        file <- Workflow.Checkout.files(repo, sha, Path.dirname(path)),
+        Path.extname(file) == ".yml",
+        reduce: nil do
+      nil ->
+        with {:ok, yml} <- Workflow.Checkout.show(repo, sha, file),
+             story = read(yml),
+             true <- (story["story_id"] || story["id"]) == id do
+          {:ok, story, file}
+        else
+          _other -> nil
+        end
+
+      found ->
+        found
+    end
   end
 
   @doc "Where an issue handed in is kept in the main copy: its project's `issues/<id>.yml`."

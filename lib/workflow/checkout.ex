@@ -329,6 +329,17 @@ defmodule Workflow.Checkout do
     end
   end
 
+  @doc "The files directly in the folder `dir` at the commit `sha` of `repo`'s main copy (`git ls-tree`), as paths; none where there is no such folder."
+  @spec files(String.t(), String.t(), String.t()) :: [String.t()]
+  def files(repo, sha, dir) do
+    with %{folder: folder} <- landing(repo),
+         {:ok, listed} <- git(folder, ["ls-tree", "--name-only", sha, "--", dir <> "/"]) do
+      String.split(listed, "\n", trim: true)
+    else
+      _none -> []
+    end
+  end
+
   @doc "`git diff <old>..<new> -- <path>` in `repo`'s main copy."
   @spec diff(String.t(), String.t(), String.t(), String.t()) :: String.t()
   def diff(repo, old, new, path) do
