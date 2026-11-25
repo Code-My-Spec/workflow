@@ -1,0 +1,12 @@
+id: "skip-applies-to-every-parked-ci-work"
+kind: "issue"
+title: With no server, every work parked at ci skips on restart
+text: |-
+  Fault: after the loop was restarted on main with no server configured, six works parked at ci finished as skipped (the-ci-step-asks-the-server, parked-works-free-their-slot, the-cap-belongs-to-the-machine, story-hand-in-finds-by-id, no-server-skips-ci, stop-keeps-the-story), but works-are-server-records-to-the-contract (landed 0a0f962) and the-queue (landed 6d520ce) stayed at ci with "Waiting on ci at the commit this work landed as." They were reported done later, so something delayed them. With no server, every work at ci must skip at once on startup (no-server-skips-ci, 721c7f4).
+
+  Find why those two differ from the six (for example: works recovered through server records, works in works/slot/ or queue/queue.json, or the order or path resume takes), and fix it so every work parked at ci skips on startup with no server, whatever path it took to get there.
+
+  Checks: a test that reproduces the difference (a work in the same state as those two) and shows it skips at startup. Tests in tmp project dirs with a fake agents run, never the real ~/.workflow or .git/workflow. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "With no server, a work parked at ci in the state works-are-server-records-to-the-contract and the-queue were in finishes as skipped at startup."
+  - "With no server, every work parked at ci finishes as skipped at startup, whichever path it was parked by."

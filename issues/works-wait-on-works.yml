@@ -1,0 +1,13 @@
+id: "works-wait-on-works"
+kind: "issue"
+title: Works wait on works
+text: |-
+  Slice 3 of the epic "Works, workflows and the queue" (loop side). It builds on the-queue (6d520ce).
+
+  Wanted: a hand-in can name the works it waits on, by id (e.g. handed in "after X"). A work whose prerequisites haven't all landed is held: it holds no slot and is skipped when the loop pulls the top eligible queued work. Once every work it waits on has landed, it becomes eligible and starts on its own at the next free slot, keeping its place in the queue order. A work that names no prerequisites behaves as today. A held work is reported as queued (statuses as in notes/works_contract.md), along with the ids it waits on. If a prerequisite is stopped, the waiting work stays held and is reported as waiting on a stopped work, for a person to decide; it is never started on its own.
+
+  Checks: tests with any server stubbed, tmp project dirs, never the real ~/.workflow or .git/workflow, and a fake agents run. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "A work handed in after X, while X has not landed, holds no slot and does not start even when slots are free."
+  - "Once X lands, the work handed in after X starts on its own."
+  - "When X is stopped, the work handed in after X stays held and is reported as waiting on a stopped work."

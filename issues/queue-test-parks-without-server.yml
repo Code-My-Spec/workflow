@@ -1,0 +1,12 @@
+id: "queue-test-parks-without-server"
+kind: "issue"
+title: The queue's criterion 3 test parks its work again
+text: |-
+  Fault: since no-server-skips-ci (721c7f4) landed, test/workflow/the_queue_test.exs:160 ("the-queue: criterion 3, queued works from two projects on one machine start in hand-in order") fails on main with "a1 never parked" at the_queue_test.exs:174. With no server configured, the ci step now finishes at once as skipped, so the test's work a1 goes straight to done and never parks at ci.
+
+  Fix: the test gives its works a server (a stubbed one, as other tests did when no-server-skips-ci landed), or otherwise keeps them at ci, so a1 parks and the test checks hand-in order as intended. Fix the test setup, not its assertions: it must still prove that queued works from two projects start in hand-in order. Don't change no-server-skips-ci's behaviour. If any other test on main fails for the same reason, fix it the same way.
+
+  Checks: never the real ~/.workflow or .git/workflow. Don't weaken tests. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "The-queue criterion 3 test parks a1 at ci and passes, still checking that queued works from two projects start in hand-in order."
+  - "The full suite passes on main."
