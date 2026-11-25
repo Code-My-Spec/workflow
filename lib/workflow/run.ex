@@ -248,7 +248,8 @@ defmodule Workflow.Run do
 
   # Before the current step is done, the current step is current, the rest are waiting.
   defp steps(template, current) do
-    index = current && Enum.find_index(Workflow.Template.steps(template), &(&1.name == current.name))
+    index =
+      current && Enum.find_index(Workflow.Template.steps(template), &(&1.name == current.name))
 
     template
     |> Workflow.Template.steps()
@@ -508,8 +509,12 @@ defmodule Workflow.Run do
   # as on certify, and nothing kept said whose turn it was. The agent whose turn
   # it was is given it back, with the note it was given.
   defp kept_turn(%{"step" => name} = turn, %{"kind" => kind}) do
-    if step = Enum.find(Workflow.Template.steps(template(kind)), &(&1.name == name and is_map_key(&1, :agent))),
-      do: agent_step(step, turn["note"])
+    if step =
+         Enum.find(
+           Workflow.Template.steps(template(kind)),
+           &(&1.name == name and is_map_key(&1, :agent))
+         ),
+       do: agent_step(step, turn["note"])
   end
 
   defp kept_turn(_none, _work), do: nil
@@ -843,22 +848,26 @@ defmodule Workflow.Run do
   """
   @spec resume() :: :ok
   def resume do
-    for file <- Path.wildcard(Path.join(works_dir(), "*.json")),
-        {:ok, %{} = work} <- [file |> File.read!() |> Jason.decode()] do
-      # Seen live: a work of a kind since cut ("provision") crashed resume for
-      # every work after it. One with no template is left alone, its file as it is.
-      if is_binary(work["kind"]) and template(work["kind"]) != nil do
-        # Done, the owner's, or not runnable: no longer in flight. One waiting on
-        # its ci event stays, so the event finds it. One still in flight here is
-        # dropped by the loop: it has ended, stopped.
-        with {_step, agent} when agent not in ["started", "waiting"] <- start(work),
-             do: unfly(work, {"stopped", nil})
-      else
-        Logger.warning(
-          "[Workflow #{work["id"]}] not resumed: its kind #{inspect(work["kind"])} has no template"
-        )
-      end
+    works =
+      for file <- Path.wildcard(Path.join(works_dir(), "*.json")),
+          {:ok, %{} = work} <- [file |> File.read!() |> Jason.decode()],
+          known?(work),
+          do: work
+
+    # Seen live: works mid agent step waited, working: false, while resume went
+    # one by one through every work whose name sorts before theirs. Those whose
+    # agent was at work go first, each on its own, as many as the cap has slots
+    # for; the rest wait for a slot, their turn kept, as a parked work does.
+    {turns, rest} = Enum.split_with(works, &(is_map(&1["turn"]) and &1["parked"] != true))
+    {now, later} = Enum.split(turns, slots_for(turns))
+
+    for work <- later do
+      File.rm(Path.join(works_dir(), "#{work["id"]}.json"))
+      wait_for_slot(work)
     end
+
+    for work <- now, do: Task.start(fn -> resumed_in_flight(work) end)
+    for work <- rest, do: resumed_in_flight(work)
 
     # One queued behind a work no longer in flight or queued is started.
     ids = Enum.map(story_works(), & &1["id"])
@@ -867,7 +876,42 @@ defmodule Workflow.Run do
         behind not in ids,
         do: release(behind)
 
-    :ok
+    next_in_slot()
+  end
+
+  # Seen live: a work of a kind since cut ("provision") crashed resume for
+  # every work after it. One with no template is left alone, its file as it is.
+  defp known?(work) do
+    known = is_binary(work["kind"]) and template(work["kind"]) != nil
+
+    unless known,
+      do:
+        Logger.warning(
+          "[Workflow #{work["id"]}] not resumed: its kind #{inspect(work["kind"])} has no template"
+        )
+
+    known
+  end
+
+  # Done, the owner's, or not runnable: no longer in flight. One waiting on its
+  # ci event stays, so the event finds it. One still in flight here is dropped
+  # by the loop: it has ended, stopped.
+  defp resumed_in_flight(work) do
+    with {_step, agent} when agent not in ["started", "waiting"] <- start(work),
+         do: unfly(work, {"stopped", nil})
+  end
+
+  # How many of the works whose agent was at work get it back now: the slots
+  # free under the machine's cap, counting their own as free; all, with no manager.
+  defp slots_for(turns) do
+    case Workflow.Manager.configured() do
+      nil ->
+        length(turns)
+
+      manager ->
+        {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
+        max(cap - (flying - length(turns)), 0)
+    end
   end
 
   @doc "Why the loop gave up on the work, or `nil` while it has not."
