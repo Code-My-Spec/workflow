@@ -896,15 +896,22 @@ defmodule Workflow.Run do
   How many works hold a slot: those in flight, but those parked, waiting on
   their ci event. A work waiting on its owner is not in flight at all.
   """
-  @spec running() :: non_neg_integer()
-  def running, do: Enum.count(read_works(works_dir()), &(&1["parked"] != true))
+  @spec running(String.t()) :: non_neg_integer()
+  def running(dir \\ works_dir()), do: Enum.count(read_works(dir), &(&1["parked"] != true))
 
-  @doc "Whether a slot is free under the manager's `\"cap\"` (default 3); always, with no manager."
+  @doc """
+  Whether a slot is free on the machine, under the cap its projects share
+  (`Workflow.Machine`, from the manager's `"cap"`, default 3); always, with no manager.
+  """
   @spec slot?() :: boolean()
   def slot? do
     case Workflow.Manager.configured() do
-      nil -> true
-      manager -> running() < (manager["cap"] || 3)
+      nil ->
+        true
+
+      manager ->
+        {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
+        flying < cap
     end
   end
 

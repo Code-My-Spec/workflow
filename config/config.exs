@@ -6,4 +6,9 @@ config :workflow, port: if(config_env() == :test, do: nil, else: 4010)
 
 # Under test, works in flight are kept nowhere a served instance would resume them.
 if config_env() == :test,
-  do: config(:workflow, works_dir: Path.join(System.tmp_dir!(), "workflow-test-works"))
+  do:
+    config(:workflow,
+      works_dir: Path.join(System.tmp_dir!(), "workflow-test-works"),
+      # Each project alone under test: never the real ~/.workflow/machine.
+      machine_dir: false
+    )
