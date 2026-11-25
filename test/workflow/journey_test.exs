@@ -35,7 +35,8 @@ defmodule Workflow.JourneyTest do
              "demo",
              "approve",
              "promote",
-             "ci"
+             "ci",
+             "verify"
            ]
 
     assert Enum.find(Journey.steps(), &(&1.name == "approve")) == %{

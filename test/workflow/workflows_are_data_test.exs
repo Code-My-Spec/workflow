@@ -20,9 +20,12 @@ defmodule Workflow.WorkflowsAreDataTest do
       kind = unquote(kind)
       template = unquote(template)
 
-      assert {:ok, %{name: ^kind, steps: steps, file: file}} = Workflows.load(kind)
+      assert {:ok, %{name: ^kind, steps: steps, file: file} = workflow} = Workflows.load(kind)
       assert File.regular?(file)
-      assert shape(steps) == shape(template.steps())
+
+      # A file that names a verify ends with it, a system step, run once at the end.
+      ran = if workflow[:verify], do: steps ++ [%{name: "verify", actor: :system}], else: steps
+      assert shape(ran) == shape(template.steps())
 
       for %{actor: actor} = step <- steps, actor not in [:system, :owner, :external] do
         assert is_binary(step.agent.brief) and step.agent.brief != ""
