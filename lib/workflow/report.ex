@@ -91,6 +91,9 @@ defmodule Workflow.Report do
         "steps" => Enum.map(seen.steps, &%{"name" => &1.name, "actor" => to_string(&1.actor)}),
         "step" => seen.step,
         "status" => status,
+        # Waiting on a person or on ci: it holds no slot.
+        "parked" =>
+          status == "waiting on a person" or (status == "running" and seen.actor == :external),
         "commit" => Checkout.commit(root),
         "at" => Checkout.now(),
         "machine" => machine(),
