@@ -5,40 +5,16 @@ defmodule Workflow.Issue do
   (`review`), the system merges it into the main copy (`promote`), and it waits
   on its `ci` event (`ci`).
 
-  Each agent's step says what kind of agent does it: its brief and its tools.
+  Its steps, and each agent's brief and tools, are in its workflow file
+  (`priv/workflows/issue.json`).
   The snapshot is `%{head, commits, results}`: the checkout's tree, how many
   commits of its own it has, and what was found at each tree, by step.
   """
 
   @behaviour Workflow.Template
 
-  @coder %{
-    tools: [:read, :edit, :write, :bash],
-    brief:
-      "You are the coder on one issue in this checkout. Fix what you are told, with a " <>
-        "test that fails without your fix, commit it with git, then end your turn."
-  }
-
-  @reviewer %{
-    tools: [:read, :bash],
-    decides: true,
-    brief:
-      "You review one fix in this checkout, and change nothing. Read the diff since the " <>
-        "branch you are told (`git diff <branch>...HEAD`). Does it fix what was asked, does " <>
-        "its test fail without the fix, is it lean? Then call `decide` once: pass, or fail " <>
-        "with a note saying what must change."
-  }
-
-  @steps [
-    %{name: "fix", actor: :coder, agent: @coder},
-    %{name: "certify", actor: :system},
-    %{name: "review", actor: :reviewer, agent: @reviewer},
-    %{name: "promote", actor: :system},
-    %{name: "ci", actor: :external}
-  ]
-
   @impl true
-  def steps, do: @steps
+  def steps, do: Workflow.Workflows.steps!("issue")
 
   @impl true
   # Merged, the branch has nothing of its own again: that is done, not unstarted.

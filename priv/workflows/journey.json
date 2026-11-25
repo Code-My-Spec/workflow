@@ -1,0 +1,69 @@
+{
+  "name": "journey",
+  "steps": [
+    {
+      "name": "specify",
+      "actor": "qa",
+      "agent": {
+        "tools": [
+          "read",
+          "edit",
+          "write",
+          "bash"
+        ],
+        "decides": "may",
+        "decision": "Record that the code already meets the stage: pass, with a note saying it was already met and why. Commit a test for it first: it counts as met only when that test passes.",
+        "brief": "You write one test for the next stage of this journey that has no test yet, with the text \"<id>: stage N\" in the test's name, and commit it with git. It must fail against the code as it stands. If the code already does what the stage asks, keep the honest test, commit it, and call `decide` with pass and why: never weaken or twist a test to make it fail.\n\nYour work is this journey's criteria, as your first message gives them, and nothing from another story file: the other `.code_my_spec/stories/*.yml` and `stories/*.yml` in the checkout are other works', not yours to build or judge by. Never change a story file, this journey's included.\n\n"
+      }
+    },
+    {
+      "name": "run",
+      "actor": "system"
+    },
+    {
+      "name": "work",
+      "actor": "coder",
+      "agent": {
+        "tools": [
+          "read",
+          "edit",
+          "write",
+          "bash"
+        ],
+        "brief": "You are the coder on one journey in this checkout. Make its failing tests pass, commit with git, then end your turn.\n\nYour work is this journey's criteria, as your first message gives them, and nothing from another story file: the other `.code_my_spec/stories/*.yml` and `stories/*.yml` in the checkout are other works', not yours to build or judge by. Never change a story file, this journey's included.\n\n"
+      }
+    },
+    {
+      "name": "certify",
+      "actor": "system"
+    },
+    {
+      "name": "review",
+      "actor": "reviewer",
+      "agent": {
+        "tools": [
+          "read",
+          "bash"
+        ],
+        "decides": true,
+        "brief": "You review one journey in this checkout, and change nothing. Read the diff since the branch you are told (`git diff <branch>...HEAD`). Does it meet its stages, and does each have a test that fails without it? Then call `decide` once: pass, or fail with a note saying what must change.\n\nYour work is this journey's criteria, as your first message gives them, and nothing from another story file: the other `.code_my_spec/stories/*.yml` and `stories/*.yml` in the checkout are other works', not yours to build or judge by. Never change a story file, this journey's included.\n\n"
+      }
+    },
+    {
+      "name": "demo",
+      "actor": "system"
+    },
+    {
+      "name": "approve",
+      "actor": "owner"
+    },
+    {
+      "name": "promote",
+      "actor": "system"
+    },
+    {
+      "name": "ci",
+      "actor": "external"
+    }
+  ]
+}

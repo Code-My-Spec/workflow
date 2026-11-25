@@ -35,6 +35,14 @@ defmodule Workflow.TheQueueTest do
       end
     end)
 
+    # A server is configured, so a landed work parks at ci for its event; its
+    # state dir holds no sign-in, so nothing is asked of it.
+    Application.put_env(:workflow, :server, %{
+      "url" => "ws://x",
+      "project_id" => "p1",
+      "state_dir" => Path.join(dir, "state")
+    })
+
     # Git is real; `just` is never run, and passes.
     Application.put_env(:workflow, :cmd, fn
       "just", _args, _opts -> {"", 0}
@@ -45,13 +53,10 @@ defmodule Workflow.TheQueueTest do
     Application.put_env(:workflow, :push, %{"remote" => "nowhere", "branch" => "main"})
     Application.delete_env(:workflow, :recipients)
 
-    # A stubbed server, so a work that lands waits at ci for its event (with none,
-    # ci is skipped at once): its state dir holds no sign-in, so nothing is asked of it.
-    Application.put_env(:workflow, :server, %{
-      "url" => "ws://x",
-      "project_id" => "p1",
-      "state_dir" => Path.join(dir, "state")
-    })
+    # A server is configured (its line never up, nothing sent): a work that lands
+    # waits at ci, holding no slot, as these tests take it to. With none, ci is
+    # skipped and the work is done at once (`no_server_skips_ci_test.exs`).
+    Application.put_env(:workflow, :server, %{"url" => "ws://x", "project_id" => "p1"})
 
     Application.put_env(:workflow, :manager_run, fn _message, opts ->
       {:ok, %{text: "noted", messages: opts[:messages]}}
