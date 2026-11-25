@@ -1,0 +1,18 @@
+id: "works-are-server-records-to-the-contract"
+kind: "issue"
+title: Works are server records, built to the approved provisional contract
+text: |-
+  This redoes works-are-server-records, which landed only a blocked note (2c17f60) after its provisional contract was reverted.
+
+  The owner (John) has APPROVED a provisional contract, and it must not be reverted. The doc "Works, workflows and the queue" has no wire contract for slice 2. Its only words: "Hand-in creates a work on the server, with its workflow and the thing it works on, before the loop sees it. Loop reports update that record. Done when: a work shows in the pipeline from the moment it is handed in, and a loop restart loses nothing." So the contract is ours to write. Do not look for the doc again and do not record this work as blocked.
+
+  First, restore the provisional contract the earlier attempt wrote and reverted: undo the reverts of 5950b36 and 9577c2c (the blocked note says `git revert 5950b36 9577c2c` brings it back), then remove the blocked note. The contract lives in notes/works_contract.md, small and built on the existing loop channel: a call/3 claim that waits for a reply, and the existing "report" push carrying the record id. It covers the messages/endpoints, the record's fields, the statuses queued|running|parked|done|stopped, and who writes what (server vs loop). If that file is missing or incomplete after the restore, write it to cover those points. Carve builds the server side to this same file afterwards. Build the loop side to it.
+
+  Wanted on the loop side: the server creates the work record at hand-in, and the loop claims a work the server created instead of creating its own. Every report the loop sends about a work (at hand-in, at each step change, parked, the terminal report) updates that server record. The loop holds nothing about a work that the server record doesn't also hold, so on a restart it recovers the works it has claimed from their server records and carries on at the step each one shows.
+
+  Checks: tests with the server stubbed to the contract (no real server, never the real ~/.workflow or .git/workflow). The credential is never logged or written to disk or into conversation files. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "A work exists as a record on the stubbed server before the loop sees it, and the loop claims that record rather than creating its own."
+  - "Each step change the loop reports updates the claimed record on the server, with its status from queued|running|parked|done|stopped."
+  - "After a loop restart, every claimed work resumes at the step its server record shows, with nothing lost."
+  - "notes/works_contract.md is in the landed commit and describes the messages, fields, statuses, and who writes what."
