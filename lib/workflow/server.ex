@@ -103,7 +103,7 @@ defmodule Workflow.Server do
     socket =
       new_socket() |> assign(:server, server) |> assign(:topic, "loop:#{server["project_id"]}")
 
-    {:ok, connect!(socket, uri: uri(server))}
+    {:ok, connect!(socket, dial(server))}
   end
 
   @impl Slipstream
@@ -342,27 +342,44 @@ defmodule Workflow.Server do
     end
   end
 
-  # Each retry dials with the credential as it is now, refreshed if expiring.
+  # Each retry dials with the credential as it is now, refreshed if expiring, in
+  # the `x-cms-token` header. A header connect refused with 403 (a server not yet
+  # taking the header) is tried once with the token in the query form; no other
+  # failure is, and the next retry after that is the header again.
   @impl Slipstream
-  def handle_disconnect(_reason, socket) do
-    config = %{socket.channel_config | uri: URI.parse(uri(socket.assigns.server))}
-    reconnect(%{socket | channel_config: config})
+  def handle_disconnect(reason, socket) do
+    form = if refused?(reason) and socket.assigns[:form] != :query, do: :query, else: :header
+    dial = dial(socket.assigns.server, form)
+    config = %{socket.channel_config | uri: URI.parse(dial[:uri]), headers: dial[:headers]}
+    reconnect(%{assign(socket, :form, form) | channel_config: config})
   end
 
-  @doc "The URL to dial: the server's, with a token from `Workflow.SignIn.token/2` (refreshed if expiring)."
-  @spec uri(map(), Workflow.SignIn.http()) :: String.t()
-  def uri(%{"url" => url} = server, http \\ &Workflow.SignIn.post/2) do
-    case Workflow.SignIn.token(server, http) do
-      nil ->
+  defp refused?({:error, {:upgrade_failure, %{status_code: 403}}}), do: true
+  defp refused?(_reason), do: false
+
+  @doc """
+  What to dial: the server's url, and a token from `Workflow.SignIn.token/2`
+  (refreshed if expiring) in the `x-cms-token` header, or with `form` `:query`
+  in the url's query string instead (for a server not yet taking the header).
+  """
+  @spec dial(map(), :header | :query, Workflow.SignIn.http()) :: keyword()
+  def dial(%{"url" => url} = server, form \\ :header, http \\ &Workflow.SignIn.post/2) do
+    case {Workflow.SignIn.token(server, http), form} do
+      {nil, _form} ->
         Logger.warning(
           "[Workflow.Server] no sign-in for #{Workflow.SignIn.base(url)}; run `workflow sign-in`"
         )
 
-        url
+        [uri: url, headers: []]
 
-      token ->
-        url <>
+      {token, :header} ->
+        [uri: url, headers: [{"x-cms-token", token}]]
+
+      {token, :query} ->
+        query =
           if(String.contains?(url, "?"), do: "&", else: "?") <> URI.encode_query(token: token)
+
+        [uri: url <> query, headers: []]
     end
   end
 end
