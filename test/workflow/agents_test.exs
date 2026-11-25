@@ -178,4 +178,25 @@ defmodule Workflow.AgentsTest do
     # An issue has no criteria; nothing is said of them.
     refute Agents.message(step, %{"text" => "fix it"}, []) =~ "own criteria"
   end
+
+  test "coder-builds-its-own-story: criterion 1 a story in the story's shape shows its own title and story, so no agent reads it off a story file" do
+    work = %{
+      "kind" => "story",
+      "id" => "public-auction-page",
+      "title" => "Public auction page",
+      "story" => "As a visitor I want to see an auction's lots.",
+      "rules" => [%{"rule" => "Lots are listed", "scenarios" => ["a visitor sees them"]}]
+    }
+
+    for {name, actor} <- [specify: :qa, work: :coder, review: :reviewer] do
+      first =
+        Agents.message(%{name: to_string(name), actor: actor, note: nil, agent: %{}}, work, [])
+
+      assert first =~ "Public auction page"
+      assert first =~ "As a visitor I want to see an auction's lots."
+
+      assert first =~
+               "This work's own criteria, and no other story's:\n1. Lots are listed a visitor sees them"
+    end
+  end
 end
