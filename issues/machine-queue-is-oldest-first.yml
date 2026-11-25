@@ -1,0 +1,13 @@
+id: "machine-queue-is-oldest-first"
+kind: "issue"
+title: The machine's queue serves the oldest hand-in first
+text: |-
+  Follow-on to the epic "Works, workflows and the queue" (the-queue 6d520ce, the-cap-belongs-to-the-machine 6fd4d88). The owner decided that across projects on one machine, queued works go first-in first-out by hand-in time.
+
+  First check main: the-queue's review says cross-project order is already FIFO by handed_in_at. If that's already true, say so in the decision note with the test that shows it. Add only the test below if it's missing, and build nothing else.
+
+  Wanted: when two projects share one machine and a slot frees, the queued work with the oldest hand-in time across both projects takes it, whichever project freed the slot and whichever project's tick runs first.
+
+  Checks: a test with two projects in tmp dirs sharing one machine cap, a fake agents run, any server stubbed, never the real ~/.workflow or .git/workflow. Project B's work is handed in (queued) before project A's; when a slot frees, B's starts first. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "With two projects on one machine at the cap, project B's earlier queued hand-in starts before project A's later one when a slot frees, even when the slot freed in project A."
