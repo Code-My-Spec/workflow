@@ -1,0 +1,13 @@
+id: "restart-resumes-agents"
+kind: "issue"
+title: A restart resumes the agent of every work mid-step
+text: |-
+  Fault: after the loop was restarted on main, works that were in the middle of an agent step got no agent. workflows-are-data (a story at work, coder, 13 commits) and works-wait-on-works (an issue at fix, coder) showed working: false at their current step, and nothing ran on them, while free slots were available (cap 5, one work running). One possible lead, from the review of parked-works-free-their-slot (ecd9b8b): entries in works/slot/ are not picked up by resume/0 after a restart until some slot frees. Find the real cause.
+
+  Fix: on restart, every work that was in an agent step (fix, work, specify, review, or any coder/qa/reviewer step) gets an agent again at that step, up to the machine's cap, with its step, notes, commits and history unchanged. Works beyond the cap wait for a slot as usual. Parked and queued works keep their behaviour.
+
+  Checks: tests restart the loop (or its application) in tmp project dirs with a fake agents run, never the real ~/.workflow or .git/workflow, with any server stubbed. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "After a restart with an issue work mid-fix, its fix step gets an agent again."
+  - "After a restart with a story work mid-work, its work step gets an agent again, keeping its commits."
+  - "After a restart with more mid-step works than the cap, only up to the cap get agents and the rest start as slots free."
