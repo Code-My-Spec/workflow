@@ -4,6 +4,8 @@ defmodule Workflow.Application do
 
   @impl true
   def start(_type, _args) do
+    # erl puts the release's own erts/bin first on PATH; children must use the project's.
+    System.put_env("PATH", without_release_erts(System.get_env("PATH", ""), System.get_env("BINDIR")))
     check_path(System.get_env("PATH", ""))
 
     # Its own settings, from `config.json` beside the works (`Workflow.ConfigFile`).
@@ -41,6 +43,12 @@ defmodule Workflow.Application do
 
     :ok
   end
+
+  @doc "`path` without the release's own erts `bindir` entry."
+  def without_release_erts(path, nil), do: path
+
+  def without_release_erts(path, bindir),
+    do: path |> String.split(":") |> Enum.reject(&(&1 == bindir)) |> Enum.join(":")
 
   defp start_tree do
     # Served only where a port is configured: as a dependency it is a library.

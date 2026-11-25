@@ -24,4 +24,11 @@ defmodule Workflow.ApplicationTest do
     assert Enum.filter(lines, &(&1 =~ "`git`")) == []
     assert length(lines) == 2
   end
+
+  test "the release's erts bin is taken off PATH, nothing else" do
+    assert Workflow.Application.without_release_erts("/r/erts-1/bin:/usr/bin:/r/bin", "/r/erts-1/bin") ==
+             "/usr/bin:/r/bin"
+
+    assert Workflow.Application.without_release_erts("/usr/bin", nil) == "/usr/bin"
+  end
 end
