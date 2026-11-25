@@ -1,0 +1,22 @@
+id: "the-queue"
+kind: "issue"
+title: "The queue: past the cap, a work queues instead of being refused"
+text: |-
+  Slice 3 of the epic "Works, workflows and the queue" (loop side).
+
+  Fault today: a hand-in past the cap is refused ("Refused: N works are in flight, at the cap of N. Nothing was started and nothing is queued; hand it in again when a slot frees."), and a person has to hand it in again later.
+
+  Wanted: a hand-in past the cap is accepted and queued. When a slot frees (a work finishes, stops or parks), the loop pulls the top eligible queued work and starts it on its own. The cap is the machine's cap (Workflow.Machine, from the-cap-belongs-to-the-machine), so the queue is shared across the machine's projects too.
+
+  Order, as decided by the owner:
+  - Across projects on one machine, queued works go first-in first-out by hand-in time.
+  - Anyone on a project can reorder that project's queue. The loop always takes the queue's current order and never re-sorts it itself, so a reorder takes effect at the next free slot.
+
+  A queued work keeps the text and criteria it was handed in with, and it's reported as queued (status queued, as in notes/works_contract.md once works-are-server-records-to-the-contract lands). Parked works resuming into a free slot (works/slot/, from parked-works-free-their-slot) and queued works use the same slots. Keep that behaviour, and say in the commit which goes first.
+
+  Checks: tests with any server stubbed, never the real ~/.workflow or .git/workflow, tmp project dirs and a fake agents run. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "With five works running at a cap of five, a sixth hand-in is queued, not refused."
+  - "When one of the five finishes, the queued work starts on its own."
+  - "Queued works from two projects on one machine start in hand-in order."
+  - "After a project's queue is reordered, the work now at the top starts at the next free slot."
