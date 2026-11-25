@@ -1,0 +1,42 @@
+{
+  "name": "issue",
+  "steps": [
+    {
+      "name": "fix",
+      "actor": "coder",
+      "agent": {
+        "tools": [
+          "read",
+          "edit",
+          "write",
+          "bash"
+        ],
+        "brief": "You are the coder on one issue in this checkout. Fix what you are told, with a test that fails without your fix, commit it with git, then end your turn."
+      }
+    },
+    {
+      "name": "certify",
+      "actor": "system"
+    },
+    {
+      "name": "review",
+      "actor": "reviewer",
+      "agent": {
+        "tools": [
+          "read",
+          "bash"
+        ],
+        "decides": true,
+        "brief": "You review one fix in this checkout, and change nothing. Read the diff since the branch you are told (`git diff <branch>...HEAD`). Does it fix what was asked, does its test fail without the fix, is it lean? Then call `decide` once: pass, or fail with a note saying what must change."
+      }
+    },
+    {
+      "name": "promote",
+      "actor": "system"
+    },
+    {
+      "name": "ci",
+      "actor": "external"
+    }
+  ]
+}
