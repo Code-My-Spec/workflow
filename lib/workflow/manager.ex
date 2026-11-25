@@ -535,6 +535,30 @@ defmodule Workflow.Manager do
     end
   end
 
+  # An issue handed in by its id alone is read from its recorded issues/<id>.yml
+  # in the main copy, as a story handed in by its id alone is read from its file.
+  defp by_id(%{"kind" => "issue", "id" => id} = work, %{"repo" => repo}, _pin)
+       when is_binary(repo) do
+    if id_alone?(work) do
+      path = Workflow.StoryFile.issue_path(work)
+
+      case File.read(Path.join(repo, path)) do
+        {:ok, yml} ->
+          yml
+          |> Workflow.StoryFile.read()
+          |> Map.take(["title", "text", "criteria"])
+          |> Map.merge(work)
+
+        {:error, _none} ->
+          {:refused,
+           "Refused: no issue #{id} is recorded (there is no #{path} in the main " <>
+             "copy). Hand it in with its text. Nothing was started."}
+      end
+    else
+      work
+    end
+  end
+
   defp by_id(work, _manager, _pin), do: work
 
   defp pinned(%{"id" => id} = work, manager, pin) do
