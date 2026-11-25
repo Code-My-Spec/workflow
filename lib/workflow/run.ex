@@ -919,6 +919,11 @@ defmodule Workflow.Run do
       [node()]
     )
 
+    # A work queued after one stopped stays held, for a person to decide: it is
+    # reported so.
+    with {"stopped", _step} <- ended,
+         do: for(w <- queued_works(), id in List.wrap(w["after"]), do: Workflow.Report.queued(w))
+
     release(id)
     next_in_slot()
   end
@@ -1009,17 +1014,21 @@ defmodule Workflow.Run do
   # slot is free under the cap it was handed in at, and no other project on the
   # machine has a work queued longer: across projects, the first handed in goes
   # first. It is kept in flight before it is started, so the slot is taken at once.
+  # A work held on works not landed yet (`waits_on/1`) is passed over, keeping
+  # its place.
   defp next_queued do
-    with [top | rest] = own <- queued_works(),
+    with own = queued_works(),
+         [top | _] = eligible <- Enum.reject(own, &held?/1),
          cap = top["cap"] || (Workflow.Manager.configured() || %{})["cap"] || 3,
          {flying, cap} when flying < cap <- Workflow.Machine.in_flight(cap),
-         since = longest(own),
+         since = longest(eligible),
          true <-
            Enum.all?(
              Workflow.Machine.others(),
-             &((longest(queued_works(&1)) || since + 1) > since)
+             &((longest(Enum.reject(queued_works(&1), fn work -> held?(work) end)) || since + 1) >
+                 since)
            ) do
-      write_queue(rest)
+      write_queue(Enum.reject(own, &(&1["id"] == top["id"])))
       work = top |> Map.drop(["handed_in_at", "cap"]) |> with_agents()
       fly(work)
 
@@ -1032,6 +1041,32 @@ defmodule Workflow.Run do
 
   # When the longest-queued work of a queue was handed in, nil for none.
   defp longest(queue), do: queue |> Enum.map(& &1["handed_in_at"]) |> Enum.min(fn -> nil end)
+
+  @doc """
+  The ids of the works `work` was handed in after (its `"after"`) that have
+  not landed in its repository. While there is one, the work is held: queued,
+  holding no slot, and passed over by `next_in_slot/0`.
+  """
+  @spec waits_on(map()) :: [String.t()]
+  def waits_on(work) do
+    for id <- List.wrap(work["after"]),
+        not Enum.any?(kinds(), &Checkout.landed?(work["repo"], &1, id)),
+        do: id
+  end
+
+  @doc "Whether `work` is held on works not landed yet (`waits_on/1`)."
+  @spec held?(map()) :: boolean()
+  def held?(work), do: waits_on(work) != []
+
+  @doc """
+  Those of `ids` stopped, for good by the manager or given up on by the loop: a
+  work waiting on one is never started on its own; a person decides.
+  """
+  @spec stopped_of(String.t() | nil, [String.t()]) :: [String.t()]
+  def stopped_of(repo, ids) when is_binary(repo),
+    do: Enum.filter(ids, &(Checkout.cancelled?(repo, &1) or is_map(Checkout.stopped(repo, &1))))
+
+  def stopped_of(_repo, _ids), do: []
 
   @doc """
   Queues a work handed in with no slot free: kept, as it was handed in (its

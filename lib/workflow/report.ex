@@ -84,7 +84,8 @@ defmodule Workflow.Report do
   @doc """
   Hands the report of `work`, queued with no slot free (`Workflow.Run.enqueue/1`),
   to the loop's line to the server, where there is one: status "queued", on no
-  step yet, holding no slot.
+  step yet, holding no slot, with `waiting_on` the ids of the works it is held on
+  (`Workflow.Run.waits_on/1`), and a note where one of those is stopped.
   """
   @spec queued(map()) :: :ok
   def queued(%{"id" => id} = work) do
@@ -102,13 +103,22 @@ defmodule Workflow.Report do
         "commit" => nil,
         "at" => Checkout.now(),
         "machine" => machine(),
-        "note" => nil
+        "note" => held_note(work),
+        "waiting_on" => Workflow.Run.waits_on(work)
       }
 
       for line <- lines, do: send(line, {:report, report})
     end
 
     :ok
+  end
+
+  # A work held on one stopped is waiting on a stopped work, for a person to decide.
+  defp held_note(work) do
+    case Workflow.Run.stopped_of(work["repo"], Workflow.Run.waits_on(work)) do
+      [] -> nil
+      ids -> "waiting on a stopped work: #{Enum.join(ids, ", ")}; a person decides"
+    end
   end
 
   @doc "The report of the work `id` checked out at `root`, or nil where no work was kept there."

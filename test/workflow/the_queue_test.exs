@@ -20,7 +20,8 @@ defmodule Workflow.TheQueueTest do
             :push,
             :manager,
             :manager_run,
-            :recipients
+            :recipients,
+            :server
           ],
           do: {key, Application.fetch_env(:workflow, key)}
 
@@ -43,6 +44,11 @@ defmodule Workflow.TheQueueTest do
     # No such remote: promote merges into the main copy and pushes nothing.
     Application.put_env(:workflow, :push, %{"remote" => "nowhere", "branch" => "main"})
     Application.delete_env(:workflow, :recipients)
+
+    # A server is configured (its line never up, nothing sent): a work that lands
+    # waits at ci, holding no slot, as these tests take it to. With none, ci is
+    # skipped and the work is done at once (`no_server_skips_ci_test.exs`).
+    Application.put_env(:workflow, :server, %{"url" => "ws://x", "project_id" => "p1"})
 
     Application.put_env(:workflow, :manager_run, fn _message, opts ->
       {:ok, %{text: "noted", messages: opts[:messages]}}
