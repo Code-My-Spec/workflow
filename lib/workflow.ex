@@ -18,12 +18,12 @@ defmodule Workflow do
         }
 
   @doc "The step the snapshot puts the work on, or nil once every step is done."
-  @spec current(module(), term()) :: step() | nil
+  @spec current(Workflow.Template.t(), term()) :: step() | nil
   def current(template, snapshot) do
-    steps = template.steps()
+    steps = Workflow.Template.steps(template)
 
     Enum.find_value(steps, fn step ->
-      case template.status(step, snapshot) do
+      case Workflow.Template.status(template, step, snapshot) do
         :done ->
           nil
 

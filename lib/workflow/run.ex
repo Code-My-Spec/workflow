@@ -25,7 +25,21 @@ defmodule Workflow.Run do
 
   @doc "The kinds of work there is a template for."
   @spec kinds() :: [String.t()]
-  def kinds, do: Map.keys(@templates)
+  def kinds, do: Enum.uniq(Map.keys(@templates) ++ Workflow.Workflows.names())
+
+  @doc """
+  The template a kind of work runs by: the loop's own module, or, for a kind
+  only a workflow file names, that file's steps, each found by its name in
+  `Workflow.Story`. Nil for a kind with neither.
+  """
+  @spec template(String.t()) :: Workflow.Template.t() | nil
+  def template(kind) do
+    cond do
+      is_map_key(@templates, kind) -> Map.fetch!(@templates, kind)
+      kind in Workflow.Workflows.names() -> {Workflow.Story, kind}
+      true -> nil
+    end
+  end
 
   # A review, or an owner's decision on a demo, made by hand: the work key it
   # comes in under, the step it is recorded as, and its two answers.
@@ -137,7 +151,7 @@ defmodule Workflow.Run do
   end
 
   defp advanced(%{"kind" => kind} = work) do
-    case advance(@templates[kind], work) do
+    case advance(template(kind), work) do
       nil ->
         disown(work)
         nil
@@ -149,7 +163,7 @@ defmodule Workflow.Run do
 
   # The system step a work is on at a clean tree, found with nothing run; nil when on none.
   defp system_step(%{"kind" => kind} = work) do
-    template = @templates[kind]
+    template = template(kind)
     snapshot = snapshot(template, work)
 
     case Workflow.current(template, snapshot) do
@@ -174,18 +188,16 @@ defmodule Workflow.Run do
   defp snapshot(template, %{"id" => id, "root" => root} = work) do
     snapshot = Checkout.snapshot(root, id)
 
-    # Loaded first: a module nothing has called yet exports nothing, and the first
-    # look at a story ran its tests before anyone had been asked to write one.
-    if Code.ensure_loaded?(template) and function_exported?(template, :observe, 2),
-      do: Map.merge(snapshot, template.observe(work, snapshot)),
-      else: snapshot
+    # Loaded first (`Workflow.Template.observe/3`): the first look at a story ran
+    # its tests before anyone had been asked to write one.
+    Map.merge(snapshot, Workflow.Template.observe(template, work, snapshot))
   end
 
   @doc "Where the work is, with nothing run: its step and what was found at its tree."
   @spec look(map()) :: map() | :none
   def look(%{"kind" => kind, "id" => id, "root" => root} = work) do
     with %{} <- Checkout.snapshot(root, id) do
-      template = @templates[kind]
+      template = template(kind)
       # The checkout's query alone has no criteria or stages: what was kept
       # beside its results fills those in, as they were handed in.
       work = Checkout.kept(root, id) |> Map.merge(work)
@@ -231,9 +243,10 @@ defmodule Workflow.Run do
 
   # Before the current step is done, the current step is current, the rest are waiting.
   defp steps(template, current) do
-    index = current && Enum.find_index(template.steps(), &(&1.name == current.name))
+    index = current && Enum.find_index(Workflow.Template.steps(template), &(&1.name == current.name))
 
-    template.steps()
+    template
+    |> Workflow.Template.steps()
     |> Enum.with_index()
     |> Enum.map(fn {step, i} ->
       state =
@@ -264,7 +277,7 @@ defmodule Workflow.Run do
         Logger.info("[Workflow #{id}] #{name}")
         say(work, "#{name} started")
         report(work)
-        result = template.perform(name, work, snapshot)
+        result = Workflow.Template.perform(template, name, work, snapshot)
         Checkout.record(root, id, name, result)
         say(work, "#{name}: #{result["status"]}")
         advance(template, work)
@@ -453,7 +466,7 @@ defmodule Workflow.Run do
   defp merged(%{"kind" => kind, "id" => id, "root" => root, "repo" => repo}) do
     with %{commits: 0, dirty?: false} = snapshot <- Checkout.snapshot(root, id),
          true <- Checkout.landed?(repo, kind, id) do
-      steps = @templates[kind].steps()
+      steps = Workflow.Template.steps(template(kind))
       coder = Enum.find(steps, &(&1.actor == :coder))
 
       case Workflow.Parts.ci(snapshot, coder.name) do
@@ -490,7 +503,7 @@ defmodule Workflow.Run do
   # as on certify, and nothing kept said whose turn it was. The agent whose turn
   # it was is given it back, with the note it was given.
   defp kept_turn(%{"step" => name} = turn, %{"kind" => kind}) do
-    if step = Enum.find(@templates[kind].steps(), &(&1.name == name and is_map_key(&1, :agent))),
+    if step = Enum.find(Workflow.Template.steps(template(kind)), &(&1.name == name and is_map_key(&1, :agent))),
       do: agent_step(step, turn["note"])
   end
 
@@ -506,7 +519,7 @@ defmodule Workflow.Run do
   # Seen live: a service restarted under an agent mid-edit stranded the work.
   defp to_coder(%{actor: :system} = step, %{"kind" => kind, "root" => root} = work)
        when not is_map_key(step, :stop) do
-    coder = Enum.find(@templates[kind].steps(), &(&1.actor == :coder))
+    coder = Enum.find(Workflow.Template.steps(template(kind)), &(&1.actor == :coder))
 
     if coder && match?({:ok, _provider}, Agents.provider(coder, work)),
       do:
@@ -803,7 +816,7 @@ defmodule Workflow.Run do
         {:ok, %{} = work} <- [file |> File.read!() |> Jason.decode()] do
       # Seen live: a work of a kind since cut ("provision") crashed resume for
       # every work after it. One with no template is left alone, its file as it is.
-      if is_map_key(@templates, work["kind"]) do
+      if is_binary(work["kind"]) and template(work["kind"]) != nil do
         # Done, the owner's, or not runnable: no longer in flight. One waiting on
         # its ci event stays, so the event finds it. One still in flight here is
         # dropped by the loop: it has ended, stopped.

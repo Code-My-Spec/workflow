@@ -10,7 +10,8 @@ defmodule Workflow.Application do
     # Its workflow files, each naming only steps it has an implementation for
     # (`Workflow.Workflows`).
     with :ok <- Workflow.ConfigFile.load(),
-         {:ok, _workflows} <- Workflow.Workflows.load_dir(Workflow.Workflows.dir()) do
+         {:ok, _workflows} <- Workflow.Workflows.load_dir(Workflow.Workflows.dir()),
+         {:ok, _plugged} <- Workflow.Workflows.load_dir(Workflow.Workflows.plugin_dir()) do
       start_tree()
     else
       {:error, message} ->

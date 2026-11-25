@@ -17,13 +17,54 @@ defmodule Workflow.Workflows do
   @doc "The names of the steps the loop has an implementation for."
   def known, do: @known
 
-  @doc "The workflow named `name`, read from its file."
-  def load(name), do: load_file(Path.join(dir(), name <> ".json"))
+  @doc "The plugin's workflows folder, when the plugin in use has one."
+  def plugin_dir do
+    with "" <> plugin <- Workflow.Plugin.dir(),
+         folder = Path.join(plugin, "workflows"),
+         true <- File.dir?(folder) do
+      folder
+    else
+      _none -> nil
+    end
+  end
+
+  @doc """
+  The names of the workflows there are files for: the loop's own and the
+  plugin's, which adds new ones or replaces the loop's by name.
+  """
+  def names do
+    [dir(), plugin_dir()]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(&Path.wildcard(Path.join(&1, "*.json")))
+    |> Enum.map(&Path.basename(&1, ".json"))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @doc """
+  The workflow named `name`, read from its file: the plugin's, when its
+  workflows folder has one by that name, else the loop's own.
+  """
+  def load(name), do: load_file(file(name))
+
+  defp file(name) do
+    own = Path.join(dir(), name <> ".json")
+
+    with "" <> folder <- plugin_dir(),
+         plugged = Path.join(folder, name <> ".json"),
+         true <- File.regular?(plugged) do
+      plugged
+    else
+      _none -> own
+    end
+  end
 
   @doc """
   Every workflow file in `dir`, by name, or the first one refused, with a
-  message naming the file and what is wrong with it.
+  message naming the file and what is wrong with it. No folder (nil) has none.
   """
+  def load_dir(nil), do: {:ok, %{}}
+
   def load_dir(dir) do
     dir
     |> Path.join("*.json")
