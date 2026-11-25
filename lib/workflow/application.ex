@@ -7,10 +7,12 @@ defmodule Workflow.Application do
     check_path(System.get_env("PATH", ""))
 
     # Its own settings, from `config.json` beside the works (`Workflow.ConfigFile`).
-    case Workflow.ConfigFile.load() do
-      :ok ->
-        start_tree()
-
+    # Its workflow files, each naming only steps it has an implementation for
+    # (`Workflow.Workflows`).
+    with :ok <- Workflow.ConfigFile.load(),
+         {:ok, _workflows} <- Workflow.Workflows.load_dir(Workflow.Workflows.dir()) do
+      start_tree()
+    else
       {:error, message} ->
         require Logger
         Logger.error(message)
