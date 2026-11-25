@@ -35,6 +35,14 @@ defmodule Workflow.TheQueueTest do
       end
     end)
 
+    # A server is configured, so a landed work parks at ci for its event; its
+    # state dir holds no sign-in, so nothing is asked of it.
+    Application.put_env(:workflow, :server, %{
+      "url" => "ws://x",
+      "project_id" => "p1",
+      "state_dir" => Path.join(dir, "state")
+    })
+
     # Git is real; `just` is never run, and passes.
     Application.put_env(:workflow, :cmd, fn
       "just", _args, _opts -> {"", 0}

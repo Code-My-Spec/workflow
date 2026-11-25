@@ -148,9 +148,31 @@ defmodule Workflow.Report do
         "note" => note(seen)
       }
 
+      report = with_workflow(report, work["kind"])
+
       if status == "landed", do: Map.merge(report, landed(work, seen)), else: report
     else
       _none -> nil
+    end
+  end
+
+  # The whole workflow the work runs, from its file: its name, its steps with
+  # their actors, and its verify when it has one. Carried from the first report,
+  # so its full list of steps is shown before it reaches its second step.
+  defp with_workflow(report, kind) do
+    case Workflow.Workflows.load(kind) do
+      {:ok, %{name: name, steps: steps} = workflow} ->
+        carried =
+          %{
+            "name" => name,
+            "steps" => Enum.map(steps, &%{"name" => &1.name, "actor" => to_string(&1.actor)})
+          }
+          |> then(&if(workflow[:verify], do: Map.put(&1, "verify", workflow.verify), else: &1))
+
+        Map.put(report, "workflow", carried)
+
+      {:error, _why} ->
+        report
     end
   end
 
