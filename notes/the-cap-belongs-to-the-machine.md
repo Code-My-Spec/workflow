@@ -14,8 +14,12 @@ of that directory.
 ## How a machine's projects agree on it
 
 - The machine's cap is the smallest cap any of its projects names.
-- The works in flight on the machine are every works file (`<works_dir>/*.json`)
-  of every project written there. A queued work is not in flight, as before.
+- The works holding a slot on the machine are every works file
+  (`<works_dir>/*.json`) of every project written there, but a parked one
+  (`Workflow.Run.running/1`). A queued work is not in flight, as before.
+- A parked work resumes only into a slot free on the machine (`Workflow.Run.slot?/0`).
+  Its loop looks for one when a slot frees in its own project; a slot freed in
+  another project is found at its loop's next free slot or hand-in.
 - A hand-in that would go past the machine's cap is refused, as at a project's
   cap before: "Refused: N works are in flight, at the cap of C". Once a work
   anywhere on the machine ends, its slot is free to any project's next hand-in.

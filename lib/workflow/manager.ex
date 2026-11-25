@@ -374,6 +374,7 @@ defmodule Workflow.Manager do
       },
       execute: fn input, _context ->
         # The machine's cap, its slots shared by every project it runs (`Workflow.Machine`).
+        # A parked work, waiting on a person or on ci, holds no slot.
         {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
 
         cond do
@@ -733,7 +734,7 @@ defmodule Workflow.Manager do
             |> Map.drop(["review", "demo", "note"])
             |> Map.merge(Map.take(input, ["id", "kind", "demo", "note"]))
             |> Map.merge(configured_for(manager))
-            |> started()
+            |> resumed()
 
           _none ->
             {:ok,
@@ -798,6 +799,16 @@ defmodule Workflow.Manager do
     manager
     |> Map.take(["repo", "project", "agents"])
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  # A work parked on its owner resumes into a free slot, else as soon as one frees.
+  defp resumed(work) do
+    if Run.slot?() do
+      started(work)
+    else
+      Run.wait_for_slot(work)
+      {:ok, "#{work["id"]}: decided. Every slot is taken; it resumes as soon as one frees."}
+    end
   end
 
   defp started(work) do

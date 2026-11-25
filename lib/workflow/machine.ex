@@ -34,10 +34,8 @@ defmodule Workflow.Machine do
     works = Workflow.Run.works_dir()
     projects = [%{"works_dir" => works, "cap" => cap} | others(works, cap)]
 
-    flying =
-      projects
-      |> Enum.map(&length(Path.wildcard(Path.join(&1["works_dir"], "*.json"))))
-      |> Enum.sum()
+    # Each project's works holding a slot: a parked one holds none (`Workflow.Run.running/1`).
+    flying = projects |> Enum.map(&Workflow.Run.running(&1["works_dir"])) |> Enum.sum()
 
     {flying, projects |> Enum.map(& &1["cap"]) |> Enum.min()}
   end

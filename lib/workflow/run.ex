@@ -292,7 +292,12 @@ defmodule Workflow.Run do
         payload = if is_map(payload), do: payload, else: %{}
         record_event(work["root"], id, name, payload)
         if name == "ci" and payload["verdict"] == "flaky", do: flaky(work, payload)
-        Task.start(fn -> watch(%{name: name, actor: :system, note: nil}, work) end)
+
+        # A parked work resumes into a free slot, else as soon as one frees.
+        if work["parked"] && not slot?(),
+          do: wait_for_slot(Map.put(work, "event", name)),
+          else: Task.start(fn -> watch(%{name: name, actor: :system, note: nil}, work) end)
+
         :ok
     end
   end
@@ -738,9 +743,12 @@ defmodule Workflow.Run do
   # Left on an event, kept in flight with its copy, so the event finds it; else
   # landed, waiting on its owner or done.
   # An agent's conversation is not kept while the work waits on the world.
+  # Parked: it holds no slot while it waits, so one waiting for a slot takes it.
   defp left(%{"id" => id} = work, %{actor: :external, name: name}) do
+    fly(work, true)
     Agents.forget(id)
     say(work, "waiting on the event #{name}")
+    next_in_slot()
   end
 
   defp left(%{"id" => id} = work, left) do
@@ -825,10 +833,13 @@ defmodule Workflow.Run do
   def stopped(%{"id" => id} = work), do: Checkout.stopped(work["root"] || work["repo"], id)
 
   # A work in flight is kept on disk by its id, so a restart can resume it; a
-  # key is kept nowhere, so it is taken out of what each agent runs on.
-  defp fly(%{"id" => id} = work) do
+  # key is kept nowhere, so it is taken out of what each agent runs on. One
+  # `parked` (waiting on its ci event) is kept so, and holds no slot (`running/0`).
+  defp fly(%{"id" => id} = work, parked \\ false) do
     keyless =
       work
+      |> Map.delete("parked")
+      |> then(&if(parked, do: Map.put(&1, "parked", true), else: &1))
       |> Map.replace_lazy("agent", &keyless/1)
       |> Map.replace_lazy(
         "agents",
@@ -878,6 +889,72 @@ defmodule Workflow.Run do
     )
 
     release(id)
+    next_in_slot()
+  end
+
+  @doc """
+  How many works hold a slot: those in flight, but those parked, waiting on
+  their ci event. A work waiting on its owner is not in flight at all.
+  """
+  @spec running(String.t()) :: non_neg_integer()
+  def running(dir \\ works_dir()), do: Enum.count(read_works(dir), &(&1["parked"] != true))
+
+  @doc """
+  Whether a slot is free on the machine, under the cap its projects share
+  (`Workflow.Machine`, from the manager's `"cap"`, default 3); always, with no manager.
+  """
+  @spec slot?() :: boolean()
+  def slot? do
+    case Workflow.Manager.configured() do
+      nil ->
+        true
+
+      manager ->
+        {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
+        flying < cap
+    end
+  end
+
+  @doc """
+  A parked work whose answer came with no slot free waits for one: kept under
+  the works directory's `slot/`, and resumed, the first to wait first, as soon
+  as a slot frees. Nothing running is interrupted. One with an `"event"` is run
+  on from that event (see `event/3`); else it is started (see `start/1`).
+  """
+  @spec wait_for_slot(map()) :: :ok
+  def wait_for_slot(%{"id" => id} = work) do
+    File.mkdir_p!(slot_dir())
+    since = System.os_time(:nanosecond)
+    work = work |> keyless() |> Map.put("waiting_since", since)
+    File.write!(Path.join(slot_dir(), "#{id}.json"), Jason.encode!(work))
+    # A slot freed while it was being kept is not missed.
+    next_in_slot()
+  end
+
+  defp slot_dir, do: Path.join(works_dir(), "slot")
+
+  # The first work waiting for a slot takes the one free, with the manager's
+  # agents, whose keys were kept nowhere.
+  defp next_in_slot do
+    :global.trans(
+      {{__MODULE__, :slot}, self()},
+      fn ->
+        with true <- slot?(),
+             [first | _] <- Enum.sort_by(read_works(slot_dir()), & &1["waiting_since"]),
+             :ok <- File.rm(Path.join(slot_dir(), "#{first["id"]}.json")) do
+          agents = (Workflow.Manager.configured() || %{})["agents"]
+          {event, work} = first |> Map.delete("waiting_since") |> Map.pop("event")
+          work = if agents, do: Map.put(work, "agents", agents), else: work
+
+          if event,
+            do: Task.start(fn -> watch(%{name: event, actor: :system, note: nil}, work) end),
+            else: Task.start(fn -> start(work) end)
+        end
+      end,
+      [node()]
+    )
+
+    :ok
   end
 
   @doc """
