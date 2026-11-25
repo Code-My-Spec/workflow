@@ -1,0 +1,14 @@
+id: "the-ci-step-asks-the-server"
+kind: "issue"
+title: The ci step asks the server for its verdict
+text: |-
+  Fault: a work at the ci step never moves. The ci step waits for a server event, but no server ever sends it: nothing posts to /works/:id/events. Every landed work stays at ci for good. The latest is resume-skips-a-work-of-an-unknown-kind, which landed as d6e2a06 and has waited since 15:23.
+
+  Fix: while a work waits at ci, the loop asks the work's server for the verdict at the commit the work landed as (its promote commit, full sha). The request is GET <server>/api/ci/<full sha>, sent with the same credential Workflow.CloneToken uses to reach the server. It is sent every 60 seconds until an answer comes. An answer is recorded exactly as if it had arrived as the ci event, with the same verdicts and the same handling as today: green releases the work, red sends it back the same way it does now with the failing tests from the answer, and flaky and skipped are handled as they are now. A 404 means no verdict yet: the work keeps waiting and the loop asks again at the next interval. Polling stops when the work leaves ci or is stopped. The server-side endpoint is being added on the server separately (by Carve). Its body is taken to be the same as the ci event body the loop already accepts. Do not change the existing events path; it keeps working.
+
+  Checks: tests with the server stubbed (no real server, never the real ~/.workflow or .git/workflow), and an injectable interval or clock so tests don't sleep 60 seconds. The credential is never logged or written to disk or into conversation files. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "When the stubbed server answers green for the landed commit's sha, a work waiting at ci is released."
+  - "When the stubbed server answers red, the work goes back as it does for a red ci event, carrying the failing tests from the answer."
+  - "When the stubbed server answers 404, the work stays at ci and the loop asks again at the next interval."
+  - "The request goes to /api/ci/<full sha of the landed commit> and carries the same credential CloneToken uses."
