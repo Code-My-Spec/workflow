@@ -339,6 +339,48 @@ defmodule Workflow.RunTest do
     refute second =~ "You left changes uncommitted"
   end
 
+  test "agents-commit-no-ignored-files: a tree dirty in any path .gitignore does not name gets the general uncommitted note",
+       %{tmp_dir: dir} do
+    work = checkout(dir, 0, 0) |> Map.put("agent", %{"provider" => "claude-code"})
+    test = self()
+    {:ok, turns} = Agent.start_link(fn -> 0 end)
+    cmd = Application.get_env(:workflow, :cmd)
+
+    # After the first turn an ignored scratch file and a plain source file are both changed.
+    Application.put_env(:workflow, :cmd, fn
+      "git", ["status" | _], opts ->
+        if Agent.get(turns, & &1) > 0,
+          do: {" M tmp/scratch.txt\n M lib/a.ex\n", 0},
+          else: cmd.("git", ["status"], opts)
+
+      "git", ["ls-files" | _], _opts ->
+        {"tmp/scratch.txt\n", 0}
+
+      command, args, opts ->
+        cmd.(command, args, opts)
+    end)
+
+    Application.put_env(:workflow, :agents_run, fn step, _work ->
+      Agent.update(turns, &(&1 + 1))
+      send(test, {:ran, step.note})
+      {%{}, nil}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :agents_run) end)
+
+    {second, _log} =
+      with_log(fn ->
+        assert {%{name: "fix", actor: :coder}, "started"} = Workflow.Run.start(work)
+        settled()
+        assert_received {:ran, _first}
+        assert_received {:ran, second}
+        second
+      end)
+
+    assert second =~ "You left changes uncommitted"
+    refute second =~ "git rm --cached"
+  end
+
   test "no-stalls: criterion 1 - an agent whose turn changes nothing is told again instead of being left",
        %{tmp_dir: dir} do
     work = checkout(dir, 0, 0) |> Map.put("agent", %{"provider" => "claude-code"})
