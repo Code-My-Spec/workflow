@@ -16,8 +16,8 @@ never tags). It runs `just package <app>`, which copies the app's
 `plugins/phoenix` and interview skill into the release and builds
 `_build/codemyspec-darwin-arm64.tar.gz` (the tarball is public: it stops on
 personal paths, emails and keys). It uploads the tarball as GitHub release
-`v<version>`, fills `packaging/codemyspec.rb`'s version, `url` and
-`sha256` in, and pushes that formula to Code-My-Spec/homebrew-tap.
+`v<version>`, fills `packaging/codemyspec.rb`'s `url` and `sha256`
+in, and pushes that formula to Code-My-Spec/homebrew-tap.
 
 The tarball is built for the architecture and macOS of the machine that builds it.
 
@@ -28,9 +28,10 @@ In the repository's root, giving the CodeMySpec app's repository, run:
     just package <app>
 
 It prints two lines, `tarball: <path>` and `sha256: <hash>`. Copy
-`packaging/codemyspec.rb` and, in the copy, replace `__VERSION__` with the
-version, `__URL__` with the url the tarball will be downloaded from, and
-`__SHA256__` with the printed hash. Those are the only lines to edit. Then
+`packaging/codemyspec.rb` and, in the copy, replace `__URL__` with the url the
+tarball will be downloaded from (`.../releases/download/v<version>/...`, which
+is where Homebrew reads the version from) and `__SHA256__` with the printed
+hash. Those two are the only lines to edit. Then
 hand off the tarball and the filled-in formula to the owner, who uploads the
 tarball and puts the formula in the tap.
 

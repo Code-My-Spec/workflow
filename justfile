@@ -62,7 +62,7 @@ release version app:
     trap 'rm -rf "$tmp"' EXIT
     git clone -q https://github.com/Code-My-Spec/homebrew-tap.git "$tmp/tap"
     mkdir -p "$tmp/tap/Formula"
-    sed -e "s|__VERSION__|$version|" -e "s|__URL__|$url|" -e "s|__SHA256__|$sha|" "{{justfile_directory()}}/packaging/codemyspec.rb" > "$tmp/tap/Formula/codemyspec.rb"
+    sed -e "s|__URL__|$url|" -e "s|__SHA256__|$sha|" "{{justfile_directory()}}/packaging/codemyspec.rb" > "$tmp/tap/Formula/codemyspec.rb"
     git -C "$tmp/tap" add Formula/codemyspec.rb
     git -C "$tmp/tap" rm -q --ignore-unmatch Formula/codemyspec-loop.rb
     if git -C "$tmp/tap" diff --cached --quiet; then echo "just release: the tap's formula is already $version; nothing to push"; exit 0; fi

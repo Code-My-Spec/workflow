@@ -101,12 +101,10 @@ defmodule Workflow.ReleaseRecipeTest do
 
   test "release-recipe: criterion 3 the formula is a template the release recipe fills in" do
     formula = File.read!(Path.join(File.cwd!(), "packaging/codemyspec.rb"))
-    assert formula =~ ~s(version "__VERSION__")
     assert formula =~ ~s(url "__URL__")
     assert formula =~ ~s(sha256 "__SHA256__")
 
     justfile = File.read!(Path.join(File.cwd!(), "justfile"))
-    assert justfile =~ "s|__VERSION__|"
     assert justfile =~ "s|__URL__|"
     assert justfile =~ "s|__SHA256__|"
     assert justfile =~ "packaging/codemyspec.rb"
@@ -194,7 +192,7 @@ defmodule Workflow.ReleaseRecipeTest do
     assert calls =~ ~r/^D\tFormula\/codemyspec-loop\.rb$/m, calls
     assert calls =~ "class Codemyspec < Formula", calls
     assert calls =~ ~s(url "#{url}"), calls
-    assert calls =~ ~s(version "3.0.4"), calls
+    refute calls =~ ~r/^\s*version "/m, calls
   end
 
   test "the-loop-publishes-as-codemyspec: release into a tap without Formula/codemyspec-loop.rb still commits Formula/codemyspec.rb",
