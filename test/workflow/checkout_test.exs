@@ -902,4 +902,37 @@ defmodule Workflow.CheckoutTest do
     head = git.(main, ["rev-parse", "HEAD"])
     assert_receive {:push, "pushed", %{"branch" => "dev", "commit" => ^head}}, 1_000
   end
+
+  test "the-ci-step-asks-the-server: the pushed said for a landing names the landing work's id",
+       %{tmp_dir: dir} do
+    git = fn cwd, args ->
+      {out, 0} = System.cmd("git", args, cd: cwd, stderr_to_stdout: true)
+      String.trim(out)
+    end
+
+    remote = Path.join(dir, "remote.git")
+    main = Path.join(dir, "main")
+    work = main <> "-w1"
+    File.mkdir_p!(main)
+
+    git.(dir, ["init", "--bare", remote])
+    git.(main, ["init", "-b", "main"])
+    git.(main, ["config", "user.name", "t"])
+    git.(main, ["config", "user.email", "t@example.com"])
+    git.(main, ["remote", "add", "origin", remote])
+    git.(main, ["commit", "--allow-empty", "-m", "first"])
+    git.(main, ["worktree", "add", "-b", "issue/w1", work])
+    git.(work, ["commit", "--allow-empty", "-m", "work"])
+
+    server_line(true)
+
+    # Landed as the loop lands an issue: its promote step.
+    assert %{"status" => "promoted"} =
+             Workflow.Issue.perform("promote", %{"root" => work, "id" => "w1"}, %{main_copy: main})
+
+    head = git.(main, ["rev-parse", "HEAD"])
+
+    assert_receive {:push, "pushed", %{"branch" => "dev", "commit" => ^head, "work" => "w1"}},
+                   1_000
+  end
 end

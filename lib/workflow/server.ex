@@ -11,7 +11,7 @@ defmodule Workflow.Server do
   The server pushes `"event"` (`work`, `name`, `payload`): it is recorded for
   that work (`Workflow.Run.event/3`), as `POST /works/:id/events` records one.
   The loop pushes `"presign"` and `"uploaded"` for evidence (`Workflow.Upload`)
-  and `"pushed"` (`branch`, `commit`) once it has pushed the main copy, and
+  and `"pushed"` (`branch`, `commit`, the landing `work`) once it has pushed the main copy, and
   `"message"` (`text`) for the person's chat inbox, answered ok `id`
   (the manager's `message_chat`).
 

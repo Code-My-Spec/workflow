@@ -741,8 +741,6 @@ defmodule Workflow.Run do
   defp left(%{"id" => id} = work, %{actor: :external, name: name}) do
     Agents.forget(id)
     say(work, "waiting on the event #{name}")
-    # No server sends the ci event: the loop asks for it (`Workflow.CiPoll`).
-    if name == "ci", do: Workflow.CiPoll.start(work)
   end
 
   defp left(%{"id" => id} = work, left) do

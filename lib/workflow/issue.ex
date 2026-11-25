@@ -85,8 +85,8 @@ defmodule Workflow.Issue do
   def perform("certify", %{"root" => root} = work, snapshot),
     do: Workflow.Checkout.certify(root, snapshot, work["project"], work["id"])
 
-  def perform("promote", %{"root" => root}, snapshot),
-    do: Workflow.Checkout.promote(root, snapshot)
+  def perform("promote", %{"root" => root} = work, snapshot),
+    do: Workflow.Checkout.promote(root, snapshot, work["id"])
 
   defp found(%{head: head, results: results}, step), do: get_in(results, [head, step])
 end

@@ -886,9 +886,12 @@ defmodule Workflow.Checkout do
 
   defp failed(note), do: %{"status" => "failed", "note" => note}
 
-  @doc "Merges the checkout's commit into the main copy, as one merge commit."
-  @spec promote(String.t(), map()) :: map()
-  def promote(root, %{main_copy: main_copy}) do
+  @doc """
+  Merges the checkout's commit into the main copy, as one merge commit; the
+  "pushed" said for it names the landing work, `id`.
+  """
+  @spec promote(String.t(), map(), String.t() | nil) :: map()
+  def promote(root, %{main_copy: main_copy}, id \\ nil) do
     # The commit, not the branch: a detached checkout has no branch to name.
     {:ok, commit} = git(root, ~w(rev-parse HEAD))
 
@@ -901,7 +904,7 @@ defmodule Workflow.Checkout do
       {:ok, before} = git(main_copy, ~w(rev-parse HEAD))
 
       with :ok <- follow(main_copy, remote, branch) do
-        land(main_copy, commit, remote, branch, before)
+        land(main_copy, commit, remote, branch, before, id)
       end
     end)
   end
@@ -930,7 +933,7 @@ defmodule Workflow.Checkout do
     %{"status" => "conflicted", "note" => note}
   end
 
-  defp land(main_copy, commit, remote, branch, before) do
+  defp land(main_copy, commit, remote, branch, before, id) do
     case git(main_copy, ["merge", "--no-ff", "--no-edit", commit]) do
       {:ok, _merged} ->
         {:ok, landed} = git(main_copy, ~w(rev-parse HEAD))
@@ -938,7 +941,7 @@ defmodule Workflow.Checkout do
         # No such remote pushes nothing. A refused push never holds landing;
         # the next push carries everything. One that went is said on the channel.
         with {:ok, _url} <- git(main_copy, ["remote", "get-url", remote]),
-             {:error, why} <- pushed(main_copy, remote, branch, landed) do
+             {:error, why} <- pushed(main_copy, remote, branch, landed, id) do
           note =
             "Landed, but the push to #{remote} #{branch} failed: #{why}\n\n" <>
               "Hand in an issue with this failure now; do not ask first."
@@ -969,9 +972,9 @@ defmodule Workflow.Checkout do
     end
   end
 
-  defp pushed(main_copy, remote, branch, commit) do
+  defp pushed(main_copy, remote, branch, commit, id) do
     with {:ok, _out} = ok <- remote_git(main_copy, ["push", remote, "HEAD:" <> branch]) do
-      Workflow.Server.push("pushed", %{"branch" => branch, "commit" => commit})
+      Workflow.Server.push("pushed", %{"branch" => branch, "commit" => commit, "work" => id})
       ok
     end
   end
