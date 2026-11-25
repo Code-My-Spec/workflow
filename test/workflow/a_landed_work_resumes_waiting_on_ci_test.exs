@@ -15,7 +15,7 @@ defmodule Workflow.ALandedWorkResumesWaitingOnCiTest do
     test = self()
 
     was =
-      for key <- [:cmd, :works_dir, :agents_run, :push, :server],
+      for key <- [:cmd, :works_dir, :agents_run, :push, :server, :resumes],
           do: {key, Application.get_env(:workflow, key)}
 
     # A server is configured, so a landed work waits at ci for its event; its
@@ -189,6 +189,52 @@ defmodule Workflow.ALandedWorkResumesWaitingOnCiTest do
     refute_received {:agent, _step, _note}
     refute File.exists?(file)
     assert %{done: true} = Workflow.Run.look(work)
+    assert git(main, ~w(rev-parse HEAD)) == landed_at
+  end
+
+  # `"server"`'s line joins with `reply`, as Slipstream hands it the join reply.
+  defp joined_with(reply) do
+    Process.register(self(), Workflow.Server)
+    socket = Slipstream.Socket.assign(Slipstream.Socket.new(), started: true)
+    {:ok, _socket} = Workflow.Server.handle_join("loop:p1", reply, socket)
+    Process.unregister(Workflow.Server)
+    flush()
+  end
+
+  test "an answered parked work waits for the server's resume when its join reply says it gives the slot, and an older server's join keeps the loop's own rule",
+       %{main: main, work: work, in_flight: file} do
+    joined_with(%{})
+    refute Workflow.Server.resumes?()
+
+    landed_at = land(work, main, file)
+    joined_with(%{"resume" => true})
+    assert Workflow.Server.resumes?()
+
+    # Answered with a slot free: held, not run on, until the server says.
+    capture_log(fn ->
+      assert Workflow.Run.event("i1", "ci", %{"verdict" => "green"}) == :ok
+      Workflow.Settled.idle()
+    end)
+
+    held = Path.join([Path.dirname(file), "resume", "i1.json"])
+    assert File.exists?(file), "the held work is no longer in flight"
+    assert File.exists?(held)
+
+    # A resume for a work not held (one already run on) is nothing.
+    assert Workflow.Run.server_resumed("other") == :none
+
+    # The server's resume push runs it on: done, not re-landed.
+    capture_log(fn ->
+      {:ok, _socket} =
+        Workflow.Server.handle_message("loop:p1", "resume", %{"work" => %{"id" => "i1"}}, nil)
+
+      Workflow.Settled.idle()
+    end)
+
+    refute File.exists?(file)
+    refute File.exists?(held)
+    assert %{done: true} = Workflow.Run.look(work)
+    refute_received {:agent, _step, _note}
     assert git(main, ~w(rev-parse HEAD)) == landed_at
   end
 end

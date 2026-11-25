@@ -312,10 +312,14 @@ defmodule Workflow.Run do
         record_event(work["root"], id, name, payload)
         if name == "ci" and payload["verdict"] == "flaky", do: flaky(work, payload)
 
-        # A parked work resumes into a free slot, else as soon as one frees.
-        if work["parked"] && not slot?(),
-          do: wait_for_slot(Map.put(work, "event", name)),
-          else: Task.start(fn -> watch(%{name: name, actor: :system, note: nil}, work) end)
+        # A parked work resumes into a free slot, else as soon as one frees. A
+        # server that gives the slot (`Workflow.Server.resumes?/0`) is waited
+        # on: its `"resume"` push runs it on (`server_resumed/1`).
+        cond do
+          work["parked"] && Workflow.Server.resumes?() -> hold(Map.put(work, "event", name))
+          work["parked"] && not slot?() -> wait_for_slot(Map.put(work, "event", name))
+          true -> Task.start(fn -> watch(%{name: name, actor: :system, note: nil}, work) end)
+        end
 
         :ok
     end
@@ -1034,6 +1038,35 @@ defmodule Workflow.Run do
 
   defp slot_dir, do: Path.join(works_dir(), "slot")
 
+  # An answered parked work waiting on the server's `"resume"`: kept under the
+  # works directory's `resume/`.
+  defp hold(%{"id" => id} = work) do
+    File.mkdir_p!(resume_dir())
+    File.write!(Path.join(resume_dir(), "#{id}.json"), Jason.encode!(keyless(work)))
+    Logger.info("[Workflow #{id}] answered; waiting on the server's resume")
+  end
+
+  defp resume_dir, do: Path.join(works_dir(), "resume")
+
+  @doc """
+  The server gave the work `id` a slot (its `"resume"` push): one held for it
+  (see `event/3`) runs on from its event, or waits for the machine's slot
+  (`wait_for_slot/1`). `:none` when none is held, as for a work already run on.
+  """
+  @spec server_resumed(String.t()) :: :ok | :none
+  def server_resumed(id) do
+    file = Path.join(resume_dir(), "#{id}.json")
+
+    with {:ok, json} <- File.read(file),
+         {:ok, %{} = work} <- Jason.decode(json),
+         :ok <- File.rm(file) do
+      if slot?(), do: go_on(work), else: wait_for_slot(work)
+      :ok
+    else
+      _none -> :none
+    end
+  end
+
   @doc """
   Fills a free slot, if there is one: a parked work waiting for a slot
   (`wait_for_slot/1`) goes first, since it is already under way; else the top
@@ -1060,14 +1093,16 @@ defmodule Workflow.Run do
   # The first work waiting for a slot takes the one free, with the manager's
   # agents, whose keys were kept nowhere.
   defp resumed(first) do
-    with :ok <- File.rm(Path.join(slot_dir(), "#{first["id"]}.json")) do
-      {event, work} = first |> Map.delete("waiting_since") |> Map.pop("event")
-      work = with_agents(work)
+    with :ok <- File.rm(Path.join(slot_dir(), "#{first["id"]}.json")), do: go_on(first)
+  end
 
-      if event,
-        do: Task.start(fn -> watch(%{name: event, actor: :system, note: nil}, work) end),
-        else: Task.start(fn -> start(work) end)
-    end
+  defp go_on(kept) do
+    {event, work} = kept |> Map.delete("waiting_since") |> Map.pop("event")
+    work = with_agents(work)
+
+    if event,
+      do: Task.start(fn -> watch(%{name: event, actor: :system, note: nil}, work) end),
+      else: Task.start(fn -> start(work) end)
   end
 
   defp with_agents(work) do

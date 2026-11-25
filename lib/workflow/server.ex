@@ -25,6 +25,10 @@ defmodule Workflow.Server do
   `"support_session"` (`thread_id`, `resume`). Support's answer comes to the
   asking loop as `"wake"` (`text`), told the manager as a say is.
 
+  A server whose join reply carries `"resume" => true` gives an answered parked
+  work its slot: the work waits until the server pushes `"resume"` (`work`, its
+  record) for it (`resumes?/0`, `Workflow.Run.server_resumed/1`).
+
   Started only when `config.json` has a `"server"` object:
   `{"url": "wss://host/socket/websocket", "project_id": "..."}`, and optionally
   `"state_dir"` (default `$CMS_STATE_DIR`, else `~/.codemyspec`). Each entry of
@@ -94,6 +98,14 @@ defmodule Workflow.Server do
   @doc "The name of the `n`th extra line."
   def name(n), do: Module.concat(__MODULE__, "Line#{n}")
 
+  @doc """
+  Whether `"server"`'s server, at its last join, said it gives an answered
+  parked work its slot (its join reply's `"resume"`): such a work then waits
+  for the `"resume"` push. False with no line yet, or from an older server.
+  """
+  @spec resumes?() :: boolean()
+  def resumes?, do: Application.get_env(:workflow, :resumes) == true
+
   # Named, so `Workflow.Report` finds the lines to send a report on.
   def start_link(%{} = server), do: start_link({server, __MODULE__})
   def start_link({%{} = server, name}), do: Slipstream.start_link(__MODULE__, server, name: name)
@@ -157,6 +169,13 @@ defmodule Workflow.Server do
   def handle_message(_topic, "wake", %{"text" => "" <> text} = wake, socket) do
     Logger.info("[Workflow.Server] wake from #{wake["from"]} on #{wake["thread_id"]}")
     Task.start(fn -> answer(%{"ref" => wake["thread_id"], "text" => text}) end)
+    {:ok, socket}
+  end
+
+  # The server gave a slot to a parked work answered while every slot was taken.
+  def handle_message(_topic, "resume", %{"work" => %{"id" => "" <> id}}, socket) do
+    Logger.info("[Workflow.Server] resume #{id}")
+    Task.start(fn -> Workflow.Run.server_resumed(id) end)
     {:ok, socket}
   end
 
@@ -314,8 +333,14 @@ defmodule Workflow.Server do
   defp no_reports(socket, _reason), do: socket
 
   @impl Slipstream
-  def handle_join(topic, _reply, socket) do
+  def handle_join(topic, reply, socket) do
     Logger.info("[Workflow.Server] joined #{topic}")
+
+    # `"server"`'s line: whether its server gives an answered parked work its
+    # slot by `"resume"`. Absent, as from an older server, the loop does.
+    if Process.whereis(__MODULE__) == self(),
+      do: Application.put_env(:workflow, :resumes, is_map(reply) and reply["resume"] == true)
+
     # Each join, first or again, sends once each report kept while the line was
     # down, then reports every work in flight as it is now, so a work's newest
     # picture is its last; the first join also every journey file with no work,
