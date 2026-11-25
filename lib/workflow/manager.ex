@@ -9,7 +9,8 @@ defmodule Workflow.Manager do
   are cut from (work lands not there but in the repository's primary checkout,
   the first line of `git worktree list`, on whatever branch it has, even when
   `"repo"` names a linked worktree of it; the manager is told that folder and branch), and optionally the `"agent"` it runs on, the `"project"`, the
-  `"agents"` its works run on, and the `"cap"` on works in flight (default 3).
+  `"agents"` its works run on, and the `"cap"` on works in flight (default 3),
+  shared with the machine's other projects (see `Workflow.Machine`).
   With no `"agent"` the service runs no manager turns: its tools are still
   offered on POST /mcp/manager, and what is said to it is delivered by its
   recipient kind (see `Workflow.Messages`).
@@ -372,8 +373,8 @@ defmodule Workflow.Manager do
         required: ["kind", "id"]
       },
       execute: fn input, _context ->
-        cap = manager["cap"] || 3
-        flying = length(Path.wildcard(Path.join(Run.works_dir(), "*.json")))
+        # The machine's cap, its slots shared by every project it runs (`Workflow.Machine`).
+        {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
 
         cond do
           # Refused before anything is recorded or started: nothing is left behind.
