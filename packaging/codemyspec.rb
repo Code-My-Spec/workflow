@@ -2,12 +2,12 @@
 #
 # Installs the plain `mix release` tarball that `just package` builds (bundled
 # ERTS, no Elixir/Erlang needed) and exposes it as the `workflow` command.
-# A template: `just release` fills in __VERSION__, __URL__ and __SHA256__ and
-# writes the result to the tap (see packaging/README.md).
+# A template: its url and sha256 are the only lines to fill in (`just release`
+# fills __URL__ and __SHA256__ and writes the result to the tap; see
+# packaging/README.md). Homebrew reads the version from the url's v<version>.
 class Codemyspec < Formula
   desc "CodeMySpec loop: runs agents on works, dials the CodeMySpec server"
   homepage "https://codemyspec.com"
-  version "__VERSION__"
   url "__URL__"
   sha256 "__SHA256__"
 

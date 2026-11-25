@@ -27,11 +27,14 @@ defmodule Workflow.PackagingTest do
     assert package =~ @tarball
     assert package =~ "shasum -a 256"
 
-    # 2. The formula is a template: its version, url and sha256 are placeholders.
+    # 2. The formula is a template: its url and sha256 are its only placeholders.
     formula = read("packaging/codemyspec.rb")
-    assert formula =~ ~s(version "__VERSION__")
     assert formula =~ ~s(url "__URL__")
     assert formula =~ ~s(sha256 "__SHA256__")
+
+    assert Regex.scan(~r/__[A-Z0-9]+__/, formula) |> List.flatten() |> Enum.uniq() |> Enum.sort() ==
+             ["__SHA256__", "__URL__"]
+
     assert formula =~ ~s(depends_on "git")
     assert formula =~ ~s(depends_on "just")
     assert formula =~ ~s(bin/"workflow")
@@ -61,5 +64,14 @@ defmodule Workflow.PackagingTest do
     assert steps =~ "`url`"
     assert steps =~ "`sha256`"
     assert steps =~ "workflow sign-in"
+
+    # It gives the by-hand steps, publishing nothing: run `just package`, fill the
+    # formula's own placeholders in from what it printed, and hand off.
+    [_, by_hand] = Regex.run(~r/^## Build by hand[^\n]*\n(.*?)(?=^## |\z)/ms, steps)
+    assert by_hand =~ ~r/^    just package <app>$/m
+    assert by_hand =~ "__URL__"
+    assert by_hand =~ "__SHA256__"
+    refute by_hand =~ "__VERSION__"
+    assert by_hand =~ "hand off"
   end
 end
