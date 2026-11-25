@@ -336,8 +336,9 @@ defmodule Workflow.Manager do
   # What a work is handed in with: the old text and criteria (a journey's stages),
   # or a story's own shape.
   # `workflow` is the older name for `journey`, still taken (Workflow.StoryFile.as_journey/1).
+  # `after` names the works it waits on, by id (see `Workflow.Run.waits_on/1`).
   @handed_in ~w(kind id text criteria stages title journey workflow story_id story rules questions
-                skills)
+                skills after)
 
   defp hand_in(manager) do
     Alloy.Tool.inline(
@@ -364,6 +365,13 @@ defmodule Workflow.Manager do
                 "A story handed in by its id alone: the commit sha its file is read at " <>
                   "(default: the main copy's HEAD)"
             },
+            after: %{
+              type: "array",
+              items: %{type: "string"},
+              description:
+                "The ids of the works this one waits on: it is held in the queue, holding " <>
+                  "no slot, until every one of them has landed"
+            },
             go: %{
               type: "boolean",
               description:
@@ -389,7 +397,12 @@ defmodule Workflow.Manager do
             {:ok, "Refused: #{elem(refused, 1)}. Nothing was started."}
 
           true ->
-            work = input |> Map.take(@handed_in) |> Map.merge(configured_for(manager))
+            work =
+              input
+              |> Map.take(@handed_in)
+              |> Map.update("after", nil, &List.wrap/1)
+              |> Map.reject(fn {key, value} -> key == "after" and value in [nil, []] end)
+              |> Map.merge(configured_for(manager))
 
             case by_id(work, manager, Map.take(input, ["at", "go"])) do
               {:refused, said} ->
@@ -430,20 +443,42 @@ defmodule Workflow.Manager do
   # it runs (`Workflow.Machine`); a parked work, waiting on a person or on ci,
   # holds none. With none free, or works queued on the machine already, it is
   # queued, and started on its own when a slot frees (`Workflow.Run.enqueue/1`).
+  # One handed in after works that have not all landed is held in the queue,
+  # holding no slot, and started on its own once they have.
   defp slotted(work, manager) do
     {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
 
     queued =
-      Enum.any?([Run.works_dir() | Workflow.Machine.others()], &(Run.queued_works(&1) != []))
+      Enum.any?(
+        [Run.works_dir() | Workflow.Machine.others()],
+        &(Run.queued_works(&1) |> Enum.reject(fn queued -> Run.held?(queued) end) != [])
+      )
 
-    if flying < cap and not queued do
-      started(work)
-    else
-      Run.enqueue(Map.put(work, "cap", manager["cap"] || 3))
+    waits = Run.waits_on(work)
 
-      {:ok,
-       "#{work["id"]}: queued: #{flying} works are in flight, at the cap of #{cap}. It starts " <>
-         "on its own when a slot frees and it is at the top of the queue."}
+    cond do
+      waits != [] ->
+        Run.enqueue(Map.put(work, "cap", manager["cap"] || 3))
+
+        stopped =
+          case Run.stopped_of(work["repo"], waits) do
+            [] -> ""
+            ids -> " It is waiting on a stopped work (#{Enum.join(ids, ", ")}): a person decides."
+          end
+
+        {:ok,
+         "#{work["id"]}: queued, held: it waits on #{Enum.join(waits, ", ")}, not landed yet. " <>
+           "It holds no slot, and starts on its own once they have landed." <> stopped}
+
+      flying < cap and not queued ->
+        started(work)
+
+      true ->
+        Run.enqueue(Map.put(work, "cap", manager["cap"] || 3))
+
+        {:ok,
+         "#{work["id"]}: queued: #{flying} works are in flight, at the cap of #{cap}. It starts " <>
+           "on its own when a slot frees and it is at the top of the queue."}
     end
   end
 
@@ -625,7 +660,8 @@ defmodule Workflow.Manager do
   defp shaped?(work), do: Enum.any?(["title", "story", "rules"], &Map.has_key?(work, &1))
 
   defp id_alone?(work),
-    do: Map.keys(Map.take(work, @handed_in -- ["skills"])) |> Enum.sort() == ["id", "kind"]
+    do:
+      Map.keys(Map.take(work, @handed_in -- ["skills", "after"])) |> Enum.sort() == ["id", "kind"]
 
   defp with_stages(%{"stages" => [_ | _]} = work), do: work
 
