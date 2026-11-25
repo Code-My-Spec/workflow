@@ -1,0 +1,17 @@
+id: "manager-session-unbounded"
+kind: "issue"
+title: Manager session grows without bound until every turn fails
+text: |-
+  Fault: a manager that resumes its Claude Code session (provider_state) is sent only the new message, so Manager.bounded/1 never applies. The CLI-side session grows until every turn fails with "claude exec failed with status 1: Prompt is too long". carve on port 4010 hit this today with a 2 MB manager.bin, and the only way back was to move manager.bin aside by hand. Separately, one 4 MB tool result alone overflowed a fresh session.
+
+  Wanted, in lib/workflow/manager.ex:
+  1. When the kept conversation exceeds bound/0, drop the resumed session and start the next turn fresh from bounded(kept).
+  2. When a turn fails with "Prompt is too long", drop the session and retry that turn once, fresh from bounded(kept). If the fresh retry also fails, report the failure; do not loop.
+  3. Cap the size of a single tool result fed back to the manager. A result over the cap is truncated, with a note saying how much was cut.
+  None of this may need the operator to touch files.
+
+  Check: tests show each of the three. Tests use tmp dirs and a fake claude runner: no real claude CLI, no real ~/.workflow or .git/workflow, no real server. Do not weaken existing tests. Never log or write tokens or credentials.
+criteria:
+  - "When the kept conversation exceeds the bound, the next manager turn starts a fresh session from the bounded conversation instead of resuming."
+  - "A manager turn that fails with \"Prompt is too long\" is retried once in a fresh session from the bounded conversation."
+  - "A tool result over the cap is truncated before it reaches the manager, with a note saying how much was cut."
