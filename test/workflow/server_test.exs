@@ -125,4 +125,36 @@ defmodule Workflow.ServerTest do
       assert List.last(steps) >= 1000
     end)
   end
+
+  test "a report pushed on a line names that line's own project" do
+    socket = Slipstream.Socket.assign(socket(), :server, %{"project_id" => "dev-project"})
+    report = %{"work" => "w1", "project" => "local-project"}
+
+    {:noreply, _socket} = Workflow.Server.handle_info({:report, report}, socket)
+
+    assert_received {:pushed, "report", %{"work" => "w1", "project" => "dev-project"}}
+  end
+
+  test "lines/0 finds the server's line and each extra one that is up, push_all/2 reaches each" do
+    was = Application.get_env(:workflow, :servers)
+    Application.put_env(:workflow, :servers, [%{}, %{}])
+    on_exit(fn -> Application.put_env(:workflow, :servers, was) end)
+
+    test = self()
+
+    up = fn name ->
+      pid = spawn_link(fn -> receive do: (m -> send(test, {name, m})) end)
+      Process.register(pid, name)
+      pid
+    end
+
+    one = up.(Workflow.Server)
+    two = up.(Workflow.Server.name(2))
+
+    assert Workflow.Server.lines() == [one, two]
+
+    Workflow.Server.push_all("pushed", %{"commit" => "c1"})
+    assert_receive {Workflow.Server, {:push, "pushed", %{"commit" => "c1"}}}
+    assert_receive {Workflow.Server.Line2, {:push, "pushed", %{"commit" => "c1"}}}
+  end
 end

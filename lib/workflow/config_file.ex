@@ -30,6 +30,11 @@ defmodule Workflow.ConfigFile do
     * `"server"`: `{"url": "wss://host/socket/websocket", "project_id": "..."}`
       (and optionally `"state_dir"`): the loop dials out to that server and
       relays its chat to the manager (see `Workflow.Server`). With none, it does not.
+    * `"servers"`: a list of more `"server"` objects, each reported to as well
+      (every work's report and each push of main), e.g. a local loop on
+      `ws://localhost:4000/socket/websocket` that also reports to
+      `wss://dev.codemyspec.com/socket/websocket`. `workflow sign-in` signs in
+      to each.
 
   An example:
 
@@ -52,7 +57,7 @@ defmodule Workflow.ConfigFile do
   not valid JSON stops the boot with a message naming it.
   """
 
-  @keys ["manager", "recipients", "push", "server"]
+  @keys ["manager", "recipients", "push", "server", "servers"]
 
   @doc "Where the file is read from."
   @spec path() :: String.t()

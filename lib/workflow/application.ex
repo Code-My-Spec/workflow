@@ -61,11 +61,18 @@ defmodule Workflow.Application do
     }
 
     # Dials out to the server, where `config.json` names one (`Workflow.Server`).
+    # Each `"servers"` entry gets a line of its own beside it.
     dialed =
       case Application.get_env(:workflow, :server) do
         %{"url" => "" <> _, "project_id" => "" <> _} = server -> [{Workflow.Server, server}]
         _none -> []
-      end
+      end ++
+        for {%{"url" => "" <> _, "project_id" => "" <> _} = server, n} <-
+              Enum.with_index(Application.get_env(:workflow, :servers) || [], 1) do
+          Supervisor.child_spec({Workflow.Server, {server, Workflow.Server.name(n)}},
+            id: Workflow.Server.name(n)
+          )
+        end
 
     started =
       Supervisor.start_link([remembered, manager | served] ++ dialed,

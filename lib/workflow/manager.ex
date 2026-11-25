@@ -110,6 +110,7 @@ defmodule Workflow.Manager do
       # what its prefix is checked against; bounding it would send every turn fresh.
       messages =
         if match?({_module, %{provider_state: _}}, provider), do: kept, else: bounded(kept)
+
       conversation = Workflow.Conversation.path(manager["repo"], "manager")
       who = %{work: nil, step: nil, role: :manager}
       # Its own tools, and the plugin's MCP servers' beside them.

@@ -32,8 +32,21 @@ defmodule Workflow.SignIn do
     result =
       with :ok <- Workflow.ConfigFile.load() do
         case Application.get_env(:workflow, :server) do
-          %{"url" => "" <> _} = server -> sign_in(server)
-          _none -> {:error, "#{Workflow.ConfigFile.path()} names no \"server\" with a \"url\""}
+          %{"url" => "" <> _} = server ->
+            # Then each of `"servers"`, stopping at the first that fails.
+            Enum.reduce_while(
+              [server | Application.get_env(:workflow, :servers) || []],
+              :ok,
+              fn server, :ok ->
+                case sign_in(server) do
+                  :ok -> {:cont, :ok}
+                  error -> {:halt, error}
+                end
+              end
+            )
+
+          _none ->
+            {:error, "#{Workflow.ConfigFile.path()} names no \"server\" with a \"url\""}
         end
       end
 
