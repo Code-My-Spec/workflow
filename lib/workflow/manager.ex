@@ -374,17 +374,7 @@ defmodule Workflow.Manager do
         required: ["kind", "id"]
       },
       execute: fn input, _context ->
-        # The machine's cap, its slots shared by every project it runs (`Workflow.Machine`).
-        # A parked work, waiting on a person or on ci, holds no slot.
-        {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
-
         cond do
-          # Refused before anything is recorded or started: nothing is left behind.
-          flying >= cap ->
-            {:ok,
-             "Refused: #{flying} works are in flight, at the cap of #{cap}. Nothing was " <>
-               "started and nothing is queued; hand it in again when a slot frees."}
-
           # Stopped for good: nothing of it, its file included, comes back.
           Checkout.cancelled?(manager["repo"], input["id"]) ->
             {:ok, "#{input["id"]}: it was stopped for good, and never runs again."}
@@ -424,7 +414,7 @@ defmodule Workflow.Manager do
 
                   note ->
                     with {:ok, work} <- recorded(work),
-                         {:ok, said} <- started(work) do
+                         {:ok, said} <- slotted(work, manager) do
                       {:ok, said <> note}
                     else
                       {:refused, said} -> {:ok, said}
@@ -434,6 +424,27 @@ defmodule Workflow.Manager do
         end
       end
     )
+  end
+
+  # Started in a free slot of the machine's cap, its slots shared by every project
+  # it runs (`Workflow.Machine`); a parked work, waiting on a person or on ci,
+  # holds none. With none free, or works queued on the machine already, it is
+  # queued, and started on its own when a slot frees (`Workflow.Run.enqueue/1`).
+  defp slotted(work, manager) do
+    {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
+
+    queued =
+      Enum.any?([Run.works_dir() | Workflow.Machine.others()], &(Run.queued_works(&1) != []))
+
+    if flying < cap and not queued do
+      started(work)
+    else
+      Run.enqueue(Map.put(work, "cap", manager["cap"] || 3))
+
+      {:ok,
+       "#{work["id"]}: queued: #{flying} works are in flight, at the cap of #{cap}. It starts " <>
+         "on its own when a slot frees and it is at the top of the queue."}
+    end
   end
 
   # A work's own skills, by role, each folder read against the repo: the error

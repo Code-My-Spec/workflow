@@ -14,7 +14,7 @@ defmodule Workflow.HandInAtTheCapTest do
     String.trim(out)
   end
 
-  test "hand-in-at-the-cap-says-so: a hand-in made while the cap's worth of works are running answers promptly, refused at the cap of N, and leaves no work behind",
+  test "hand-in-at-the-cap-says-so: a hand-in made while the cap's worth of works are running answers promptly, queued at the cap of N, with its file in the works directory",
        %{tmp_dir: dir} do
     repo = Path.join(dir, "repo")
     File.mkdir_p!(Path.join(repo, "proj"))
@@ -83,15 +83,16 @@ defmodule Workflow.HandInAtTheCapTest do
     answered = Task.yield(call, 5_000) || Task.shutdown(call, :brutal_kill)
     assert System.monotonic_time(:millisecond) - began < 5_000
 
-    # The tool result names the outcome: refused at the cap.
+    # The tool result names the outcome: accepted and queued at the cap (the-queue).
     assert {:ok, {:ok, said}} = answered
-    assert said =~ "Refused"
+    assert said =~ "queued"
     assert said =~ "at the cap of 2"
 
-    # Refused: no work is left behind, neither in flight, nor a copy, nor its issue file.
+    # Queued: its file is in the works directory, waiting for a slot; it is not
+    # in flight, has no copy, and no agent is at it.
+    assert [%{"id" => "i3"}] = Workflow.Run.queued_works()
     refute File.exists?(Path.join(Workflow.Run.works_dir(), "i3.json"))
     refute File.dir?(Workflow.Checkout.root(repo, "i3"))
-    refute File.exists?(Path.join(repo, Workflow.StoryFile.issue_path(issue.("i3"))))
     refute_receive {:agent, _step, "i3"}, 200
   end
 end

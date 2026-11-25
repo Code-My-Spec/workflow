@@ -81,6 +81,36 @@ defmodule Workflow.Report do
     :ok
   end
 
+  @doc """
+  Hands the report of `work`, queued with no slot free (`Workflow.Run.enqueue/1`),
+  to the loop's line to the server, where there is one: status "queued", on no
+  step yet, holding no slot.
+  """
+  @spec queued(map()) :: :ok
+  def queued(%{"id" => id} = work) do
+    if (lines = Workflow.Server.lines()) != [] do
+      report = %{
+        "project" => project(),
+        "work" => id,
+        "kind" => work["kind"],
+        "title" => work["title"] || id,
+        "steps" => [],
+        "step" => nil,
+        "status" => "queued",
+        "work_status" => "queued",
+        "parked" => false,
+        "commit" => nil,
+        "at" => Checkout.now(),
+        "machine" => machine(),
+        "note" => nil
+      }
+
+      for line <- lines, do: send(line, {:report, report})
+    end
+
+    :ok
+  end
+
   @doc "The report of the work `id` checked out at `root`, or nil where no work was kept there."
   @spec of(String.t(), String.t()) :: map() | nil
   def of(root, id) do

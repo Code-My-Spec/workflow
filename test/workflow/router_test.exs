@@ -875,12 +875,14 @@ defmodule Workflow.RouterTest do
       refute result["isError"]
     end
 
-    # Looked for in the checkout beside the configured repo; refused by the configured cap.
+    # Looked for in the checkout beside the configured repo; queued at the configured cap.
     assert %{"result" => %{"content" => [%{"text" => "There is no checkout for x1." <> _}]}} =
              call_tool("/mcp/manager", 4, "look", %{"id" => "x1", "kind" => "issue"})
 
-    assert %{"result" => %{"content" => [%{"text" => "Refused: " <> _}]}} =
+    assert %{"result" => %{"content" => [%{"text" => "x2: queued: " <> queued}]}} =
              call_tool("/mcp/manager", 5, "hand_in", %{"id" => "x2", "kind" => "issue"})
+
+    assert queued =~ "at the cap of 0"
 
     # Arguments a tool cannot take are an error result, and the service keeps answering.
     assert %{"result" => %{"isError" => true}} = call_tool("/mcp/manager", 6, "look", %{})
