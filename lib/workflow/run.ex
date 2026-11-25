@@ -468,9 +468,12 @@ defmodule Workflow.Run do
   # commits are all merged into the main copy (`Workflow.Checkout.landed?/3`) is
   # at its ci step, and only its ci event, recorded or not, says where it goes.
   # Asked of the repository it was cut from, as the manager asks it.
-  defp merged(%{"kind" => kind, "id" => id, "root" => root, "repo" => repo}) do
+  # Seen live: two works parked at ci were not found landed there on a restart
+  # with no server, so certify and review ran again before ci was skipped. One
+  # whose results at its tree put it at ci was promoted there: it landed too.
+  defp merged(%{"kind" => kind, "id" => id, "root" => root} = work) do
     with %{commits: 0, dirty?: false} = snapshot <- Checkout.snapshot(root, id),
-         true <- Checkout.landed?(repo, kind, id) do
+         true <- at_ci?(kind, work) or Checkout.landed?(work["repo"], kind, id) do
       steps = Workflow.Template.steps(template(kind))
       coder = Enum.find(steps, &(&1.actor == :coder))
 
@@ -484,7 +487,12 @@ defmodule Workflow.Run do
     end
   end
 
-  defp merged(_no_repo), do: nil
+  defp merged(_no_root), do: nil
+
+  defp at_ci?(kind, work) do
+    template = template(kind)
+    match?(%{name: "ci", actor: :external}, Workflow.current(template, snapshot(template, work)))
+  end
 
   # Done on its ci verdict; waiting on its ci event, kept in flight as `left/2`
   # keeps it so the event finds it; or back to its coder on a red verdict.
