@@ -25,11 +25,11 @@ defmodule Workflow.Report do
     # `Workflow.Run.look/1` reads the checkout's lock as someone else's. Waited
     # on, as `ended/3` waits: reports leave in the order the work changed, so
     # the newest picture is the last, and none comes after a work's last report.
-    if server = Process.whereis(Workflow.Server) do
+    if (lines = Workflow.Server.lines()) != [] do
       task = Task.async(fn -> safely(fn -> of(root, id) end) end)
 
       with {:ok, %{} = report} <- Task.yield(task, 60_000) || Task.shutdown(task, :brutal_kill),
-           do: send(server, {:report, report})
+           do: for(line <- lines, do: send(line, {:report, report}))
     end
 
     :ok
@@ -45,7 +45,7 @@ defmodule Workflow.Report do
   """
   @spec ended(map(), String.t(), String.t() | nil) :: :ok
   def ended(%{"id" => id} = work, status, step) do
-    if server = Process.whereis(Workflow.Server) do
+    if (lines = Workflow.Server.lines()) != [] do
       # A work done whose copy is taken away is read from the repository it was
       # cut from, which shares the copy's results.
       root =
@@ -65,7 +65,9 @@ defmodule Workflow.Report do
               else: report["step"]
 
         status = if status == "stopped" and step == "ci", do: "released", else: status
-        send(server, {:report, %{report | "status" => status, "step" => step}})
+
+        for line <- lines,
+            do: send(line, {:report, %{report | "status" => status, "step" => step}})
       end
     end
 

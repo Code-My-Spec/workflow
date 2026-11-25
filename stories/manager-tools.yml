@@ -1,5 +1,5 @@
 title: A manager session gets the manager's tools
-workflow: run-the-project-manager
+journey: run-the-project-manager
 story: >
   As an owner who keeps a Claude Code session open as my project manager, I want that session to hand work in, decide and look through the service, so the manager can be a session I can see instead of one the service runs.
 rules:

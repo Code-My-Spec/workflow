@@ -1,5 +1,5 @@
 title: QA and the reviewer use the page in a real browser
-workflow: Build and land work
+journey: Build and land work
 story: >
   As an owner, I want the agents that check a story to use its page the way a person would, so that what passes the tests also works in a browser. (The first drill: eight tests passed and the form still kept the last entry's details; the fix passed its test and the form still keeps them.)
 rules:

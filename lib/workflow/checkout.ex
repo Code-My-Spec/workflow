@@ -974,7 +974,7 @@ defmodule Workflow.Checkout do
 
   defp pushed(main_copy, remote, branch, commit, id) do
     with {:ok, _out} = ok <- remote_git(main_copy, ["push", remote, "HEAD:" <> branch]) do
-      Workflow.Server.push("pushed", %{"branch" => branch, "commit" => commit, "work" => id})
+      Workflow.Server.push_all("pushed", %{"branch" => branch, "commit" => commit, "work" => id})
       ok
     end
   end

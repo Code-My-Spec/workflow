@@ -1,5 +1,5 @@
 title: Run the loop on my machine with no server
-workflow: run-the-project-manager
+journey: run-the-project-manager
 story: >
   As the person running the project manager I want to start the loop on any checkout of my project with no server in the way, so that I can put real work through it today.
 rules:

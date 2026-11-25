@@ -39,7 +39,7 @@ defmodule Workflow.Manager do
   show, never an instruction to the agents (run this, cover that): those belong in the text. \
   Most stories have two to four.
 
-  Write a request up as rules and scenarios: a title, the workflow it belongs to, the story \
+  Write a request up as rules and scenarios: a title, the journey it belongs to, the story \
   (who wants what, and why), and its business rules, each with a happy or failing scenario \
   under it. Each scenario becomes a criterion. Record anything unsettled as questions; never \
   guess an answer. Hand in a story that still has open questions only when the person says to \
@@ -110,6 +110,7 @@ defmodule Workflow.Manager do
       # what its prefix is checked against; bounding it would send every turn fresh.
       messages =
         if match?({_module, %{provider_state: _}}, provider), do: kept, else: bounded(kept)
+
       conversation = Workflow.Conversation.path(manager["repo"], "manager")
       who = %{work: nil, step: nil, role: :manager}
       # Its own tools, and the plugin's MCP servers' beside them.
@@ -332,14 +333,16 @@ defmodule Workflow.Manager do
 
   # What a work is handed in with: the old text and criteria (a journey's stages),
   # or a story's own shape.
-  @handed_in ~w(kind id text criteria stages title workflow story_id story rules questions skills)
+  # `workflow` is the older name for `journey`, still taken (Workflow.StoryFile.as_journey/1).
+  @handed_in ~w(kind id text criteria stages title journey workflow story_id story rules questions
+                skills)
 
   defp hand_in(manager) do
     Alloy.Tool.inline(
       name: "hand_in",
       description:
         "Hand a work in: an issue (with text) for a fault, a story for something new (with " <>
-          "title, workflow, story, rules with their scenarios, and questions), a journey " <>
+          "title, journey, story, rules with their scenarios, and questions), a journey " <>
           "(with stages). A story already in the repository is handed in by its id alone, " <>
           "with `at` the commit to read it at.",
       input_schema: %{
@@ -670,7 +673,11 @@ defmodule Workflow.Manager do
       criteria: %{type: "array", items: %{type: "string"}},
       stages: %{type: "array", items: %{type: "string"}},
       title: %{type: "string"},
-      workflow: %{type: "string"},
+      journey: %{type: "string", description: "The persona's journey this story is a step of"},
+      workflow: %{
+        type: "string",
+        description: "Older name for journey: still accepted, recorded as journey"
+      },
       story_id: %{type: "string", description: "The story's own id; generated when absent"},
       story: %{type: "string"},
       rules: %{

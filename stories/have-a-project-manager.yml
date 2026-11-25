@@ -1,5 +1,5 @@
 title: Have one project manager that stays
-workflow: run-the-project-manager
+journey: run-the-project-manager
 story: >
   As the person running the project manager I want one durable project manager on my machine that takes what comes in and hands it to the loops, so that I only ever talk to it and the chat.
 rules:

@@ -1,5 +1,5 @@
 title: Land finished work on my machine
-workflow: build-and-land-work
+journey: build-and-land-work
 story: >
   As the person running the project manager I want finished work merged into my machine's main copy by the loop, so that nothing waits on a remote gate to count as fixed.
 rules:

@@ -1,5 +1,5 @@
 title: Keep a project's docs as plain files
-workflow: run-the-project-manager
+journey: run-the-project-manager
 story: >
   As the person running the project manager I want my project's docs to be ordinary files in its repository, so that every agent finds them and nothing breaks.
 rules:

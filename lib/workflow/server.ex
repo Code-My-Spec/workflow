@@ -23,7 +23,10 @@ defmodule Workflow.Server do
 
   Started only when `config.json` has a `"server"` object:
   `{"url": "wss://host/socket/websocket", "project_id": "..."}`, and optionally
-  `"state_dir"` (default `$CMS_STATE_DIR`, else `~/.codemyspec`). The credential
+  `"state_dir"` (default `$CMS_STATE_DIR`, else `~/.codemyspec`). Each entry of
+  `"servers"`, a list of the same objects, gets a line of its own that is sent
+  every report and `"pushed"` (`lines/0`, `push_all/2`) and answers its own
+  says and events; calls, uploads and the chat inbox stay on `"server"`'s. The credential
   is the loop's own device sign-in (`workflow sign-in`, see `Workflow.SignIn`),
   re-read at every reconnect and refreshed before dialing when about to expire.
   """
@@ -69,8 +72,27 @@ defmodule Workflow.Server do
     :ok
   end
 
-  # Named, so `Workflow.Report` finds the line to send a report on.
-  def start_link(%{} = server), do: Slipstream.start_link(__MODULE__, server, name: __MODULE__)
+  @doc "Pushes `event` on every line (`lines/0`), nothing waited for."
+  @spec push_all(String.t(), map()) :: :ok
+  def push_all(event, payload) do
+    for pid <- lines(), do: send(pid, {:push, event, payload})
+    :ok
+  end
+
+  @doc "Every line that is up: `\"server\"`'s, then one per `\"servers\"` entry."
+  @spec lines() :: [pid()]
+  def lines do
+    extra = Application.get_env(:workflow, :servers) || []
+    names = [__MODULE__ | Enum.map(1..length(extra)//1, &name/1)]
+    for name <- names, pid = Process.whereis(name), do: pid
+  end
+
+  @doc "The name of the `n`th extra line."
+  def name(n), do: Module.concat(__MODULE__, "Line#{n}")
+
+  # Named, so `Workflow.Report` finds the lines to send a report on.
+  def start_link(%{} = server), do: start_link({server, __MODULE__})
+  def start_link({%{} = server, name}), do: Slipstream.start_link(__MODULE__, server, name: name)
 
   @impl Slipstream
   def init(server) do
@@ -203,6 +225,16 @@ defmodule Workflow.Server do
     do: {:noreply, socket}
 
   def handle_info({:report, report}, socket) do
+    # Each line's server knows the project by its own id.
+    report =
+      case socket.assigns[:server] do
+        %{"project_id" => "" <> id} when is_map_key(report, "project") ->
+          %{report | "project" => id}
+
+        _none ->
+          report
+      end
+
     case push(socket, socket.assigns.topic, "report", report) do
       {:ok, _ref} ->
         {:noreply, assign(socket, :last_push, "report")}

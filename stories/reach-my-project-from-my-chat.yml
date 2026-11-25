@@ -1,5 +1,5 @@
 title: Reach my project from my own chat
-workflow: talk-to-the-chat
+journey: talk-to-the-chat
 story: >
   As a customer I want to talk to my project from the ordinary Claude or ChatGPT chat I already use, so I do not have to learn or open anything else.
 rules:

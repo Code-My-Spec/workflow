@@ -1,5 +1,5 @@
 title: Be interviewed before anything is built
-workflow: talk-to-the-chat
+journey: talk-to-the-chat
 story: >
   As a customer I want the chat to interview me about what I want before anything is built, so that what gets built is what I meant.
 rules:

@@ -435,7 +435,8 @@ defmodule Workflow.ManagerTest do
 
     yml = File.read!(Path.join([repo <> "-s1", "proj", "stories", "s1.yml"]))
     assert yml =~ "title: Invite a teammate"
-    assert yml =~ "workflow: team-setup"
+    assert yml =~ "journey: team-setup"
+    refute yml =~ "workflow:"
     assert yml =~ "- rule: Only an owner may invite."
     assert yml =~ "- fails: A member tries to invite and is told only owners can."
     assert yml =~ "- Can an owner cancel a sent invite?"

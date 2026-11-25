@@ -5,13 +5,13 @@ text: |-
 
   Where: the workflow project (`workflow` directory): the code that writes stories/<id>.yml when a work is handed in, the manager's hand_in tool, and the manager's own brief. Tests go beside the existing ones.
 
-  Wanted: a story on disk holds all of what the person meant: its workflow, the story, the business rules, a happy or failing scenario under each rule, and the questions still open. It holds nothing about process: no verified, enforced, ready or promoted fields, and no ids or numbers on rules or scenarios.
+  Wanted: a story on disk holds all of what the person meant: its journey, the story, the business rules, a happy or failing scenario under each rule, and the questions still open. It holds nothing about process: no verified, enforced, ready or promoted fields, and no ids or numbers on rules or scenarios.
 
   The shape of stories/<id>.yml:
 
   ```yaml
   title: Invite a teammate
-  workflow: team-setup
+  journey: team-setup
   story: >
     As an account owner I want to invite a teammate by email so they can work in my project.
   rules:
@@ -23,16 +23,16 @@ text: |-
     - Can an owner cancel a sent invite?
   ```
 
-  workflows/<workflow>.yml holds a name and the ids of its stories in order.
+  journeys/<journey>.yml holds a name and the ids of its stories in order.
 
   The work's criteria are built from its scenarios, in order. Each criterion is its rule followed by the scenario text, so QA and the coder walk them one at a time just as they walk criteria today. A story handed in the old way, with only text and criteria, keeps working and is written as it is today.
 
-  The manager's hand_in tool accepts the new fields: title, workflow, story, rules with scenarios, and questions. The manager's brief tells it to write a request up as rules and scenarios, to record anything unsettled as questions, and to hand in a story that still has open questions only when the person says to go ahead anyway.
+  The manager's hand_in tool accepts the new fields: title, journey, story, rules with scenarios, and questions. The manager's brief tells it to write a request up as rules and scenarios, to record anything unsettled as questions, and to hand in a story that still has open questions only when the person says to go ahead anyway.
 
   How: write the YAML by hand. Add no new dependency. Build nothing that enforces a format on tests.
 
   Check: add tests beside the existing ones for each outcome below. Before each commit, run `just certify <an empty temporary directory>` in the workflow directory. It must pass.
 criteria:
-  - "A story handed in with title, story, rules with their scenarios, questions and a workflow is written to stories/<id>.yml in the shape given in the text, in the work's first commit."
+  - "A story handed in with title, story, rules with their scenarios, questions and a journey is written to stories/<id>.yml in the shape given in the text, in the work's first commit."
   - "The work's criteria are its scenarios in order, each given as its rule and the scenario text, and QA and the coder walk them one at a time just as they walk criteria today."
   - "A story handed in the old way, with only text and criteria, still works and is written to stories/<id>.yml as it is today."
