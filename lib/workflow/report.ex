@@ -3,7 +3,8 @@ defmodule Workflow.Report do
   The whole current picture of one work, as the loop reports it to the server
   (`Workflow.Server` pushes it as `"report"` on `loop:<project_id>`). Every kind
   reports in one shape; its steps and who acts on each come from the work's own
-  template. The loop only sends: nothing is read back, and a report that cannot
+  template. Its `work` names the work's server record, which `step`, `note` and
+  `work_status` update (`notes/works_contract.md`). The loop only sends: nothing is read back, and a report that cannot
   be made is logged and never stops a step. One that cannot be sent is kept,
   the newest a work, and sent at the next join (see `Workflow.Server`).
   A work's last report is `ended/3`'s.
@@ -66,9 +67,45 @@ defmodule Workflow.Report do
 
         status = if status == "stopped" and step == "ci", do: "released", else: status
 
-        for line <- lines,
-            do: send(line, {:report, %{report | "status" => status, "step" => step}})
+        report = %{
+          report
+          | "status" => status,
+            "step" => step,
+            "work_status" => work_status(status)
+        }
+
+        for line <- lines, do: send(line, {:report, report})
       end
+    end
+
+    :ok
+  end
+
+  @doc """
+  Hands the report of `work`, queued with no slot free (`Workflow.Run.enqueue/1`),
+  to the loop's line to the server, where there is one: status "queued", on no
+  step yet, holding no slot.
+  """
+  @spec queued(map()) :: :ok
+  def queued(%{"id" => id} = work) do
+    if (lines = Workflow.Server.lines()) != [] do
+      report = %{
+        "project" => project(),
+        "work" => id,
+        "kind" => work["kind"],
+        "title" => work["title"] || id,
+        "steps" => [],
+        "step" => nil,
+        "status" => "queued",
+        "work_status" => "queued",
+        "parked" => false,
+        "commit" => nil,
+        "at" => Checkout.now(),
+        "machine" => machine(),
+        "note" => nil
+      }
+
+      for line <- lines, do: send(line, {:report, report})
     end
 
     :ok
@@ -89,11 +126,12 @@ defmodule Workflow.Report do
         "kind" => work["kind"],
         "title" => work["title"] || id,
         "steps" => Enum.map(seen.steps, &%{"name" => &1.name, "actor" => to_string(&1.actor)}),
-        "step" => seen.step,
+        "step" => turn(id) || seen.step,
         "status" => status,
         # Waiting on a person or on ci: it holds no slot.
         "parked" =>
           status == "waiting on a person" or (status == "running" and seen.actor == :external),
+        "work_status" => work_status(status),
         "commit" => Checkout.commit(root),
         "at" => Checkout.now(),
         "machine" => machine(),
@@ -178,6 +216,7 @@ defmodule Workflow.Report do
           ),
         "step" => nil,
         "status" => "not started",
+        "work_status" => work_status("not started"),
         "commit" => commit,
         "at" => Checkout.now(),
         "machine" => machine(),
@@ -240,6 +279,24 @@ defmodule Workflow.Report do
         "running"
     end
   end
+
+  # The step of the agent's turn the work is in, as kept in flight
+  # (`Workflow.Run`): a turn given back after a restart is on the step its record
+  # showed, though the checkout's results, read afresh, would put it earlier.
+  defp turn(id) do
+    with {:ok, json} <- File.read(Path.join(Workflow.Run.works_dir(), "#{id}.json")),
+         {:ok, %{"turn" => %{"step" => "" <> step}}} <- Jason.decode(json),
+         do: step,
+         else: (_none -> nil)
+  end
+
+  # The status the report writes onto the work's server record
+  # (`notes/works_contract.md`): queued, running, parked, done or stopped.
+  defp work_status("not started"), do: "queued"
+  defp work_status("running"), do: "running"
+  defp work_status("waiting on a person"), do: "parked"
+  defp work_status(status) when status in ["landed", "done"], do: "done"
+  defp work_status(_stopped_failed_or_released), do: "stopped"
 
   # The reviewer's reason or the failure text, one line.
   defp note(seen) do

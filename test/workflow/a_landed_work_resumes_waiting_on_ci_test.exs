@@ -15,8 +15,16 @@ defmodule Workflow.ALandedWorkResumesWaitingOnCiTest do
     test = self()
 
     was =
-      for key <- [:cmd, :works_dir, :agents_run, :push],
+      for key <- [:cmd, :works_dir, :agents_run, :push, :server],
           do: {key, Application.get_env(:workflow, key)}
+
+    # A server is configured, so a landed work waits at ci for its event; its
+    # state dir holds no sign-in, so nothing is asked of it.
+    Application.put_env(:workflow, :server, %{
+      "url" => "ws://x",
+      "project_id" => "p1",
+      "state_dir" => Path.join(dir, "state")
+    })
 
     # Git is real; `just` is never run, only told to the test, and passes.
     Application.put_env(:workflow, :cmd, fn

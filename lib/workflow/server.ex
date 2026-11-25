@@ -15,6 +15,10 @@ defmodule Workflow.Server do
   `"message"` (`text`) for the person's chat inbox, answered ok `id`
   (the manager's `message_chat`).
 
+  A work is a server record (`Workflow.Works`, `notes/works_contract.md`): the
+  loop calls `"hand_in"` and `"claim"`, the server pushes `"work"` for a record
+  it made, and at its first join the loop calls `"claimed"` to run its works on.
+
   The join carries `harness_id` when `CMS_HARNESS_ID` is set. On Code My Spec's
   own loop the server pushes `"start_support"` (`project_id`, `thread_id`,
   `question`, `resume`): a support session answers it and the loop pushes
@@ -127,6 +131,13 @@ defmodule Workflow.Server do
     {:ok, socket}
   end
 
+  # A work the server made at hand-in: claimed, then run (`Workflow.Works`).
+  def handle_message(_topic, "work", %{"id" => "" <> id, "kind" => "" <> _} = record, socket) do
+    Logger.info("[Workflow.Server] work #{id}")
+    Task.start(fn -> Workflow.Works.taken(record) end)
+    {:ok, socket}
+  end
+
   # A manager's question to support (on Code My Spec's own loop): a support
   # session answers it (`Workflow.Agents.support/1`), and once it has a resume
   # handle the server is told it. Not a work: no copy, works file or slot.
@@ -146,6 +157,13 @@ defmodule Workflow.Server do
   def handle_message(_topic, "wake", %{"text" => "" <> text} = wake, socket) do
     Logger.info("[Workflow.Server] wake from #{wake["from"]} on #{wake["thread_id"]}")
     Task.start(fn -> answer(%{"ref" => wake["thread_id"], "text" => text}) end)
+    {:ok, socket}
+  end
+
+  # Someone on the project reordered its queue: taken as given from the next free slot.
+  def handle_message(_topic, "reorder", %{"order" => ids}, socket) when is_list(ids) do
+    Logger.info("[Workflow.Server] reorder #{Enum.join(ids, ", ")}")
+    Task.start(fn -> Workflow.Run.reorder(ids) end)
     {:ok, socket}
   end
 
@@ -307,6 +325,11 @@ defmodule Workflow.Server do
 
     for report <- kept ++ Workflow.Report.in_flight() ++ started,
         do: send(self(), {:report, report})
+
+    # The first join of `"server"`'s line after the loop starts: the works it has
+    # claimed are read back from their records and run on (`Workflow.Works.recover/0`).
+    if !socket.assigns[:started] and Process.whereis(__MODULE__) == self(),
+      do: Task.start(&Workflow.Works.recover/0)
 
     {:ok, assign(socket, started: true, kept: [])}
   end

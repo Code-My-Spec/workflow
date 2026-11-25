@@ -1,0 +1,15 @@
+id: "no-server-skips-ci"
+kind: "issue"
+title: With no server, the ci step finishes as skipped
+text: |-
+  Fault: this loop's config.json names no server, so the ci step waits forever for a verdict "event" that nothing will ever send. Five works sit parked at ci for that reason: the-ci-step-asks-the-server, parked-works-free-their-slot, the-cap-belongs-to-the-machine, works-are-server-records-to-the-contract and story-hand-in-finds-by-id.
+
+  Fix: when the loop has no server configured, the ci step finishes at once with verdict skipped and the note "no server, certify was the gate", and the work completes as it does for a skipped ci event today (done, with its terminal report). On startup, a work already parked at ci while the loop has no server moves on the same way. When a server is configured, nothing changes: the ci step waits for the server's event as now.
+
+  After landing, the owner restarts the loop on this code, and the five works above should finish. That's the live check; the tests below are the gate.
+
+  Checks: tests with no server configured and with a stubbed server, tmp project dirs, never the real ~/.workflow or .git/workflow, and a fake agents run. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "With no server configured, a work that lands passes ci at once as skipped, noted \"no server, certify was the gate\", and is done."
+  - "With no server configured, a work already parked at ci when the loop starts finishes as skipped."
+  - "With a server configured, a landed work still waits at ci for the server's event."

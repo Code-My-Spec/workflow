@@ -40,6 +40,15 @@ defmodule Workflow.Machine do
     {flying, projects |> Enum.map(& &1["cap"]) |> Enum.min()}
   end
 
+  @doc "The works directories of the machine's other projects (whose queues it shares)."
+  @spec others() :: [String.t()]
+  def others do
+    case dir() do
+      false -> []
+      dir -> dir |> listed(Workflow.Run.works_dir()) |> Enum.map(& &1["works_dir"])
+    end
+  end
+
   # The machine's other projects, once this one is written in beside them.
   defp others(works, cap) do
     case dir() do
@@ -50,13 +59,16 @@ defmodule Workflow.Machine do
         File.mkdir_p!(dir)
         own = %{"works_dir" => works, "cap" => cap}
         File.write!(Path.join(dir, key(works) <> ".json"), Jason.encode!(own))
-
-        for file <- Path.wildcard(Path.join(dir, "*.json")),
-            {:ok, json} <- [File.read(file)],
-            {:ok, %{"works_dir" => "" <> other, "cap" => other_cap}} <- [Jason.decode(json)],
-            is_integer(other_cap) and other != works and File.dir?(other),
-            do: %{"works_dir" => other, "cap" => other_cap}
+        listed(dir, works)
     end
+  end
+
+  defp listed(dir, works) do
+    for file <- Path.wildcard(Path.join(dir, "*.json")),
+        {:ok, json} <- [File.read(file)],
+        {:ok, %{"works_dir" => "" <> other, "cap" => other_cap}} <- [Jason.decode(json)],
+        is_integer(other_cap) and other != works and File.dir?(other),
+        do: %{"works_dir" => other, "cap" => other_cap}
   end
 
   defp key(works),

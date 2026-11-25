@@ -1,0 +1,13 @@
+id: "story-hand-in-finds-by-id"
+kind: "issue"
+title: A story hand-in by id finds the story whose id matches
+text: |-
+  Fault: handing in story vckx9kjj by its id alone was refused with "no story vckx9kjj is recorded at commit 308e104…: neither .code_my_spec/stories/vckx9kjj.yml nor stories/vckx9kjj.yml is in the main copy at that commit." The loop looks only for a file named <id>.yml, but story files are named by slug: the story is stories/workflows-are-data.yml, with `id: vckx9kjj` inside.
+
+  Fix: a story hand-in by id (with `at` or at the main copy's HEAD) finds the story file whose `id:` field matches, in either .code_my_spec/stories/ or stories/, whatever the file is named, read at that commit. When no file's id matches, it's refused as today, with the same kind of message. Keep everything else about story hand-in unchanged (open questions refused unless go: true, same sha refused, newer sha queues the difference).
+
+  Checks: tests in tmp git repos, never the real ~/.workflow or .git/workflow. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "Handing in a story by id finds stories/<slug>.yml whose id: matches the id given."
+  - "The same works for a story under .code_my_spec/stories/."
+  - "A hand-in by an id that no story file holds at that commit is refused, and nothing is started."

@@ -237,15 +237,15 @@ defmodule Workflow.Manager do
   end
 
   # Stops a work for good: no agent runs on it again and it never promotes; its
-  # checkout and branch are taken away, and its story or issue file is removed
-  # from the main copy in a commit of its own.
+  # checkout and branch are taken away. An issue's file is removed from the main
+  # copy in a commit of its own; a story's file on main is never touched.
   defp stop(manager) do
     Alloy.Tool.inline(
       name: "stop",
       description:
         "Stop a work for good: no agent runs on it again and it never promotes. Its " <>
-          "checkout and branch are removed, and its story or issue file is removed from " <>
-          "the main copy, committed.",
+          "checkout and branch are removed. An issue's file is removed from the main " <>
+          "copy, committed; a story's file on main is left as it is.",
       input_schema: %{
         type: "object",
         properties: %{id: %{type: "string"}, kind: %{type: "string", enum: Run.kinds()}},
@@ -257,15 +257,16 @@ defmodule Workflow.Manager do
         if is_binary(repo) and File.exists?(Path.join(repo, ".git")) do
           work = Map.merge(%{"kind" => kind, "id" => id}, configured_for(manager))
           Run.cancel(work)
-          # Where its file is kept: a story's or journey's as one handed in with a text.
-          path =
-            if kind == "issue",
-              do: Workflow.StoryFile.issue_path(work),
-              else: Workflow.StoryFile.path(Map.put(work, "text", ""), repo)
 
-          case Checkout.remove_files(repo, [path], "#{kind} #{id}: stopped, its file removed") do
-            {:error, why} -> {:ok, "#{id}: stopped, but #{path} not removed: #{inspect(why)}"}
-            _removed -> {:ok, "#{id}: stopped. Its checkout, branch and file are removed."}
+          if kind == "issue" do
+            path = Workflow.StoryFile.issue_path(work)
+
+            case Checkout.remove_files(repo, [path], "#{kind} #{id}: stopped, its file removed") do
+              {:error, why} -> {:ok, "#{id}: stopped, but #{path} not removed: #{inspect(why)}"}
+              _removed -> {:ok, "#{id}: stopped. Its checkout, branch and file are removed."}
+            end
+          else
+            {:ok, "#{id}: stopped. Its checkout and branch are removed; its file is kept."}
           end
         else
           {:ok, "Refused: #{inspect(repo)} is not a git checkout. Nothing was stopped."}
@@ -373,17 +374,7 @@ defmodule Workflow.Manager do
         required: ["kind", "id"]
       },
       execute: fn input, _context ->
-        # The machine's cap, its slots shared by every project it runs (`Workflow.Machine`).
-        # A parked work, waiting on a person or on ci, holds no slot.
-        {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
-
         cond do
-          # Refused before anything is recorded or started: nothing is left behind.
-          flying >= cap ->
-            {:ok,
-             "Refused: #{flying} works are in flight, at the cap of #{cap}. Nothing was " <>
-               "started and nothing is queued; hand it in again when a slot frees."}
-
           # Stopped for good: nothing of it, its file included, comes back.
           Checkout.cancelled?(manager["repo"], input["id"]) ->
             {:ok, "#{input["id"]}: it was stopped for good, and never runs again."}
@@ -405,22 +396,55 @@ defmodule Workflow.Manager do
                 {:ok, said}
 
               {:queued, work} ->
-                Run.queue(work)
+                with {:ok, work} <- recorded(work) do
+                  Run.queue(work)
 
-                {:ok,
-                 "#{work["id"]}: story #{work["story_of"]} at #{work["story_at"]}, queued " <>
-                   "behind #{work["behind"]}: it starts once #{work["behind"]} is done or " <>
-                   "stopped, and builds the difference from #{work["story_from"]}."}
+                  {:ok,
+                   "#{work["id"]}: story #{work["story_of"]} at #{work["story_at"]}, queued " <>
+                     "behind #{work["behind"]}: it starts once #{work["behind"]} is done or " <>
+                     "stopped, and builds the difference from #{work["story_from"]}."}
+                else
+                  {:refused, said} -> {:ok, said}
+                end
 
               work ->
                 case issue_recorded(work, manager) do
-                  {:refused, said} -> {:ok, said}
-                  note -> with {:ok, said} <- started(work), do: {:ok, said <> note}
+                  {:refused, said} ->
+                    {:ok, said}
+
+                  note ->
+                    with {:ok, work} <- recorded(work),
+                         {:ok, said} <- slotted(work, manager) do
+                      {:ok, said <> note}
+                    else
+                      {:refused, said} -> {:ok, said}
+                    end
                 end
             end
         end
       end
     )
+  end
+
+  # Started in a free slot of the machine's cap, its slots shared by every project
+  # it runs (`Workflow.Machine`); a parked work, waiting on a person or on ci,
+  # holds none. With none free, or works queued on the machine already, it is
+  # queued, and started on its own when a slot frees (`Workflow.Run.enqueue/1`).
+  defp slotted(work, manager) do
+    {flying, cap} = Workflow.Machine.in_flight(manager["cap"] || 3)
+
+    queued =
+      Enum.any?([Run.works_dir() | Workflow.Machine.others()], &(Run.queued_works(&1) != []))
+
+    if flying < cap and not queued do
+      started(work)
+    else
+      Run.enqueue(Map.put(work, "cap", manager["cap"] || 3))
+
+      {:ok,
+       "#{work["id"]}: queued: #{flying} works are in flight, at the cap of #{cap}. It starts " <>
+         "on its own when a slot frees and it is at the top of the queue."}
+    end
   end
 
   # A work's own skills, by role, each folder read against the repo: the error
@@ -530,7 +554,8 @@ defmodule Workflow.Manager do
         {:refused,
          "Refused: no story #{id} is recorded at commit #{sha}: neither " <>
            Enum.join(paths, " nor ") <>
-           " is in the main copy at that commit. Commit it first, or hand it in whole. " <>
+           " is in the main copy at that commit, and no story file in their folders " <>
+           "holds id: #{id}. Commit it first, or hand it in whole. " <>
            "Nothing was started."}
     end
   end
@@ -808,6 +833,23 @@ defmodule Workflow.Manager do
     else
       Run.wait_for_slot(work)
       {:ok, "#{work["id"]}: decided. Every slot is taken; it resumes as soon as one frees."}
+    end
+  end
+
+  # With a line to a server, the work is a record the server makes at hand-in,
+  # and the loop runs the record it claims (`Workflow.Works.hand_in/1`).
+  defp recorded(work) do
+    case Workflow.Works.hand_in(work) do
+      :local ->
+        {:ok, work}
+
+      {:ok, claimed} ->
+        {:ok, Map.merge(work, claimed)}
+
+      {:error, why} ->
+        {:refused,
+         "#{work["id"]}: the server did not take the hand-in (#{inspect(why)}). Nothing " <>
+           "was started; hand it in again."}
     end
   end
 

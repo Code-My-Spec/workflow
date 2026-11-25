@@ -1,0 +1,12 @@
+id: "stop-keeps-the-story"
+kind: "issue"
+title: Stop keeps the story file
+text: |-
+  Fault: stopping a work removes its story file from the main copy and commits that removal. The owner's decision is that stop must never delete a story file from main; stop only ends the work.
+
+  Fix: stopping a story work ends the work as stop does today (no agent runs on it again, it never promotes, its checkout and branch are removed, and its terminal report is sent), but its story file on main is left exactly as it was: not removed, not changed, and no commit is made for it. Update the stop tool's description so it no longer says the story file is removed. Issue files are out of scope here; leave their handling as it is.
+
+  Checks: tests in tmp git repos, never the real ~/.workflow or .git/workflow, with a fake agents run. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "Stopping a story work leaves its story file on main byte-for-byte unchanged, and no commit removing it is made."
+  - "A stopped story work never runs an agent again and never promotes, and its checkout and branch are removed."

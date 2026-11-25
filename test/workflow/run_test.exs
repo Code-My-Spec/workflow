@@ -12,9 +12,25 @@ defmodule Workflow.RunTest do
   # next test's manager_run (its notice taken for that test's), or with none, the
   # real manager, holding every later telling for seconds. So none is left at the
   # start or end of a test.
-  setup do
+  setup %{tmp_dir: dir} do
     Workflow.Tellings.quiet()
     on_exit(&Workflow.Tellings.quiet/0)
+
+    # A server is configured, so a landed work waits at ci for its event; its
+    # state dir holds no sign-in, so nothing is asked of it.
+    was = Application.get_env(:workflow, :server)
+
+    on_exit(fn ->
+      if was,
+        do: Application.put_env(:workflow, :server, was),
+        else: Application.delete_env(:workflow, :server)
+    end)
+
+    Application.put_env(:workflow, :server, %{
+      "url" => "ws://x",
+      "project_id" => "p1",
+      "state_dir" => Path.join(dir, "state")
+    })
   end
 
   # A checkout with `commits` of its own at tree "t<commits>", its checks exiting

@@ -77,8 +77,15 @@ defmodule Workflow.Application do
           )
         end
 
+    # Served, it looks now and then for a free slot, which another project's loop
+    # may have freed, for its queue (`Workflow.Run.next_in_slot/0`).
+    ticking =
+      if served != [],
+        do: [%{id: :queue_tick, start: {Task, :start_link, [&tick/0]}}],
+        else: []
+
     started =
-      Supervisor.start_link([remembered, manager | served] ++ dialed,
+      Supervisor.start_link([remembered, manager | served] ++ dialed ++ ticking,
         strategy: :one_for_one,
         name: Workflow.Supervisor
       )
@@ -86,5 +93,19 @@ defmodule Workflow.Application do
     # A service that went down left its works in flight: they carry on.
     if served != [], do: Task.start(&Workflow.Run.resume/0)
     started
+  end
+
+  defp tick do
+    Process.sleep(5_000)
+
+    try do
+      Workflow.Run.next_in_slot()
+    catch
+      kind, why ->
+        require Logger
+        Logger.warning("[Workflow] no slot filled: #{Exception.format_banner(kind, why)}")
+    end
+
+    tick()
   end
 end
