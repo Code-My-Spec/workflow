@@ -1,0 +1,13 @@
+id: "issue-hand-in-reads-its-file"
+kind: "issue"
+title: An issue handed in by id alone reads its recorded file
+text: |-
+  Fault: handing in an issue by its id alone (no text) is refused when the issue is already recorded: "Refused: issue decide-refuses-unknown-id is already recorded, and the text handed in differs from the recorded file issues/decide-refuses-unknown-id.yml, which is not written over ... Hand it in with the recorded text, or under a new id." To start a recorded issue, the manager has to paste its exact text back.
+
+  Fix: an issue handed in by id alone reads issues/<id>.yml from the main copy, the way a story handed in by id alone reads its story file, and the work carries that file's title, text and criteria. When no such file exists, the hand-in is refused with a message naming the id and the path looked for, and nothing is started. Handing in an issue with its full text keeps today's behaviour, including refusing a text that differs from the recorded file. A stopped issue stays stopped.
+
+  Checks: tests in tmp git repos with a fake agents run, never the real ~/.workflow or .git/workflow. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "Handing in an issue by id alone, with issues/<id>.yml on main, starts a work that carries that file's text and criteria."
+  - "Handing in an issue by an id that has no issues/<id>.yml is refused with a message naming the id, and nothing starts."
+  - "Handing in an issue with full text that differs from its recorded file is still refused."
