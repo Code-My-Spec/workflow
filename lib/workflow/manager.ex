@@ -530,7 +530,8 @@ defmodule Workflow.Manager do
         {:refused,
          "Refused: no story #{id} is recorded at commit #{sha}: neither " <>
            Enum.join(paths, " nor ") <>
-           " is in the main copy at that commit. Commit it first, or hand it in whole. " <>
+           " is in the main copy at that commit, and no story file in their folders " <>
+           "holds id: #{id}. Commit it first, or hand it in whole. " <>
            "Nothing was started."}
     end
   end
