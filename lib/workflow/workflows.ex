@@ -84,7 +84,10 @@ defmodule Workflow.Workflows do
          {:ok, %{"steps" => [_ | _] = steps} = data} <- Jason.decode(body),
          :ok <- implemented(file, steps) do
       name = data["name"] || Path.basename(file, ".json")
-      {:ok, %{name: name, steps: Enum.map(steps, &step/1), file: file}}
+      workflow = %{name: name, steps: Enum.map(steps, &step/1), file: file}
+
+      # A verify, when the file names one, runs once at the end over the work's events.
+      {:ok, if(data["verify"], do: Map.put(workflow, :verify, data["verify"]), else: workflow)}
     else
       {:error, %Jason.DecodeError{} = error} ->
         {:error, "#{file}: #{Exception.message(error)}"}
