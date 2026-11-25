@@ -41,6 +41,9 @@ defmodule Workflow.Run do
 
   @again "Your last turn ended with the work still on this step and nothing changed."
 
+  # The note of the ci verdict a loop with no server gives itself.
+  @no_server "no server, certify was the gate"
+
   @doc "Runs what the system can and answers the step the work is left on, nil when done."
   @spec step(map()) :: Workflow.step() | nil | :none
   def step(work) do
@@ -744,17 +747,43 @@ defmodule Workflow.Run do
   # landed, waiting on its owner or done.
   # An agent's conversation is not kept while the work waits on the world.
   # Parked: it holds no slot while it waits, so one waiting for a slot takes it.
-  defp left(%{"id" => id} = work, %{actor: :external, name: name}) do
+  # With no server configured no ci event will ever come: certify was the gate, and
+  # the work passes ci at once as skipped, as one sent a skipped ci event does.
+  # Seen live: five works sat parked at ci forever on a loop with no server.
+  defp left(%{"id" => id, "root" => root} = work, %{actor: :external, name: "ci"} = step) do
+    if server?() do
+      parked(work, step)
+    else
+      record_event(root, id, "ci", %{"verdict" => "skipped", "note" => @no_server})
+
+      case step(work) do
+        %{actor: :external} = still -> parked(work, still)
+        next -> left(work, next)
+      end
+    end
+  end
+
+  defp left(work, %{actor: :external} = step), do: parked(work, step)
+
+  defp left(%{"id" => id} = work, left) do
+    land(work, landed(left), if(is_nil(left), do: {"done", nil}))
+    if is_nil(left), do: Agents.forget(id)
+    Logger.info("[Workflow #{id}] left on #{(is_map(left) && left.name) || "done"}")
+  end
+
+  defp parked(%{"id" => id} = work, %{name: name}) do
     fly(work, true)
     Agents.forget(id)
     say(work, "waiting on the event #{name}")
     next_in_slot()
   end
 
-  defp left(%{"id" => id} = work, left) do
-    land(work, landed(left), if(is_nil(left), do: {"done", nil}))
-    if is_nil(left), do: Agents.forget(id)
-    Logger.info("[Workflow #{id}] left on #{(is_map(left) && left.name) || "done"}")
+  # A server the loop dials, as `Workflow.Application` starts a line to one.
+  defp server? do
+    match?(
+      %{"url" => "" <> _, "project_id" => "" <> _},
+      Application.get_env(:workflow, :server)
+    )
   end
 
   # Giving up is kept with the work's results and said once, never left silent.
