@@ -1,5 +1,5 @@
 title: Have what we decided written down in my repository
-workflow: talk-to-the-chat
+journey: talk-to-the-chat
 story: >
   As a customer I want what we settled written down as plain files in my repository, so it can be read, compared and reviewed along with the code.
 rules:

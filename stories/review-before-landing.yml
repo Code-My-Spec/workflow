@@ -1,5 +1,5 @@
 title: Have every change reviewed before it lands
-workflow: build-and-land-work
+journey: build-and-land-work
 story: >
   As a customer I want another agent to review every change before it lands, so that a coder's own word is never the only check.
 rules:

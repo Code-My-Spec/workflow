@@ -221,7 +221,7 @@ defmodule Workflow.StoryFilesTest do
     assert File.read!(Path.join([dir, "proj", "stories", "s1.yml"])) ==
              """
              title: Invite a teammate
-             workflow: team-setup
+             journey: team-setup
              story: >
                As an account owner I want to invite a teammate by email so they can work in my project.
              rules:

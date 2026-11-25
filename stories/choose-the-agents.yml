@@ -1,5 +1,5 @@
 title: Choose which agents and models do the work
-workflow: build-and-land-work
+journey: build-and-land-work
 story: >
   As the person running the project manager I want to choose which provider and model do each kind of work, so that I spend where it matters.
 rules:

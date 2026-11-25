@@ -9,12 +9,17 @@ defmodule Workflow.StoryFile do
   The YAML is written by hand, to be read and diffed by a person: the text is a
   literal block, and each criterion (a journey's stage) is a line of its own.
 
-  A story handed in with its rules (title, workflow, story, rules with their
+  A story handed in with its rules (title, journey, story, rules with their
   scenarios, questions) is written in that shape instead, holding what the
   person meant and nothing about process.
+
+  `journey` names the persona's journey the story is a step of. It was called
+  `workflow` before that word came to mean the steps a work runs through: a
+  story handed in or read with `workflow:` is still taken, and is written back
+  as `journey:`.
   """
 
-  @shape ["title", "workflow", "story", "rules", "questions"]
+  @shape ["title", "journey", "workflow", "story", "rules", "questions"]
 
   @doc """
   Where the work's file goes, relative to its checkout, or nil for a work that
@@ -102,7 +107,7 @@ defmodule Workflow.StoryFile do
     end
   end
 
-  defp read(yml), do: yml |> String.split("\n") |> read_fields(%{}) |> own_id()
+  defp read(yml), do: yml |> String.split("\n") |> read_fields(%{}) |> own_id() |> as_journey()
 
   # A file in the story's shape (no `kind:`) holds the story's own id as `id:`;
   # the work's id stays its file name, so the story's is kept as `story_id`.
@@ -374,10 +379,12 @@ defmodule Workflow.StoryFile do
   @spec yaml(map()) :: String.t()
   def yaml(%{"kind" => "story"} = work)
       when is_map_key(work, "rules") or is_map_key(work, "story") or is_map_key(work, "title") do
+    work = as_journey(work)
+
     IO.iodata_to_binary([
       id_line("", work["story_id"]),
       field(work, "title", &[" ", plain(&1), "\n"]),
-      field(work, "workflow", &[" ", plain(&1), "\n"]),
+      field(work, "journey", &[" ", plain(&1), "\n"]),
       field(work, "story", &folded/1),
       field(work, "rules", &rules/1),
       field(work, "questions", &plain_list(&1, "  "))
@@ -400,6 +407,19 @@ defmodule Workflow.StoryFile do
       ":",
       list(work[key])
     ])
+  end
+
+  @doc """
+  The work with its journey under `"journey"`: an older `"workflow"` is moved
+  there when no journey is given, and dropped when one is.
+  """
+  @spec as_journey(map()) :: map()
+  def as_journey(%{} = work) do
+    case Map.pop(work, "workflow") do
+      {nil, work} -> work
+      {_workflow, %{"journey" => journey} = work} when journey not in [nil, ""] -> work
+      {workflow, work} -> Map.put(work, "journey", workflow)
+    end
   end
 
   defp field(work, key, write) do

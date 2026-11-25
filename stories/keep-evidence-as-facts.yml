@@ -1,5 +1,5 @@
 title: Keep what the agents prove as plain facts
-workflow: run-the-project-manager
+journey: run-the-project-manager
 story: >
   As the person running the project manager I want everything the agents prove kept as plain files, so that I can read it, send it elsewhere or throw it away.
 rules:

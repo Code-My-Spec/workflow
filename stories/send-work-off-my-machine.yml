@@ -1,5 +1,5 @@
 title: Decide when work leaves my machine
-workflow: build-and-land-work
+journey: build-and-land-work
 story: >
   As the person running the project manager I want to decide when finished work leaves my machine for dev, so that I never push something I did not choose.
 rules:

@@ -1,5 +1,5 @@
 title: A connecting chat gets its brief
-workflow: talk-to-the-chat
+journey: talk-to-the-chat
 story: >
   As a person talking to my project through a chat, I want the chat to know its job the moment it connects, so I do not have to install or explain anything.
 rules:

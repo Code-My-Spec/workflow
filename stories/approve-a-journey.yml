@@ -1,5 +1,5 @@
 title: Approve a journey before it lands
-workflow: build-and-land-work
+journey: build-and-land-work
 story: >
   As a customer I want to see a journey demonstrated and decide whether it is accepted, so that nothing I have not seen is called finished.
 rules:

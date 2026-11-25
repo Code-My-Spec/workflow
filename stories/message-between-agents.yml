@@ -1,5 +1,5 @@
 title: Reach any agent however it runs
-workflow: run-the-project-manager
+journey: run-the-project-manager
 story: >
   As the person running the project manager I want one simple way to message any agent, so that it arrives however that agent is running.
 rules:

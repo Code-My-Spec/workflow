@@ -1,5 +1,5 @@
 title: Get a bug fixed
-workflow: build-and-land-work
+journey: build-and-land-work
 story: >
   As a customer I want a problem I report to be fixed by an agent and checked by another, so that I do not fix it myself.
 rules:

@@ -1,5 +1,5 @@
 title: Never find a stalled work
-workflow: build-and-land-work
+journey: build-and-land-work
 story: >
   As a customer I want every piece of work I have handed in to be moving, waiting on me, finished, or stopped with a reason, so that nothing quietly stops.
 rules:

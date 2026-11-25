@@ -1,5 +1,5 @@
 title: Ask my chat what is going on
-workflow: talk-to-the-chat
+journey: talk-to-the-chat
 story: >
   As a customer I want to ask my chat what is running, waiting on me, done or stopped, so I can keep track of my project without a screen.
 rules:
