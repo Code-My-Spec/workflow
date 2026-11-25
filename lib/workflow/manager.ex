@@ -105,31 +105,52 @@ defmodule Workflow.Manager do
            Workflow.Skills.find(get_in(manager, ["agent", "skills"]), repo(manager)),
          skills = plugin ++ own do
       {kept, session} = remembered()
-      provider = Agents.resume(provider, session)
 
-      # A resumed session sends only the new message, so the whole kept list is
-      # what its prefix is checked against; bounding it would send every turn fresh.
-      messages =
-        if match?({_module, %{provider_state: _}}, provider), do: kept, else: bounded(kept)
+      # A resumed session is sent only the new message, so bounding what is kept
+      # cannot shrink it: past the bound the session is dropped, and the turn
+      # starts fresh from the bounded conversation.
+      session = if byte_size(:erlang.term_to_binary(kept)) > bound(), do: nil, else: session
 
       conversation = Workflow.Conversation.path(manager["repo"], "manager")
       who = %{work: nil, step: nil, role: :manager}
-      # Its own tools, and the plugin's MCP servers' beside them.
-      tools = tools(manager) ++ Workflow.Mcp.tools(:manager)
+      # Its own tools, and the plugin's MCP servers' beside them, each result capped.
+      tools = tools(manager) ++ Enum.map(Workflow.Mcp.tools(:manager), &capped/1)
       system = @brief <> landing(manager) <> Workflow.Skills.brief(skills)
       Workflow.Conversation.begun(conversation, who, system, tools)
       Workflow.Conversation.append(conversation, who, :prompt, text)
 
-      result =
-        run(text,
-          messages: messages,
-          provider: provider,
-          tools: tools,
-          working_directory: home(),
-          system_prompt: system,
-          max_retries: 0,
-          on_event: &Agents.keep(conversation, who, &1)
-        )
+      turn = fn session ->
+        provider = Agents.resume(provider, session)
+
+        # A resumed session sends only the new message, so the whole kept list is
+        # what its prefix is checked against; bounding it would send every turn fresh.
+        messages =
+          if match?({_module, %{provider_state: _}}, provider), do: kept, else: bounded(kept)
+
+        result =
+          run(text,
+            messages: messages,
+            provider: provider,
+            tools: tools,
+            working_directory: home(),
+            system_prompt: system,
+            max_retries: 0,
+            on_event: &Agents.keep(conversation, who, &1)
+          )
+
+        {messages, result}
+      end
+
+      # A turn the context refused is run once more, fresh from the bounded
+      # conversation; a second refusal is reported, not retried.
+      {messages, result} =
+        case turn.(session) do
+          {_messages, {:error, said}} = refused ->
+            if too_long?(said), do: turn.(nil), else: refused
+
+          ran ->
+            ran
+        end
 
       Workflow.Conversation.ended(conversation, who, length(messages), result)
 
@@ -204,6 +225,52 @@ defmodule Workflow.Manager do
   defp prompt?(%{role: :user, content: "" <> _text}), do: true
   defp prompt?(_message), do: false
 
+  defp too_long?(%{error: error}), do: inspect(error) =~ ~r/prompt is too long/i
+  defp too_long?(_said), do: false
+
+  # The most, in bytes, of one tool result the manager is given.
+  @result_cap 50_000
+
+  @doc "How large, in bytes, one tool result given to the manager may be."
+  @spec result_cap() :: pos_integer()
+  def result_cap, do: @result_cap
+
+  @doc """
+  The tool, its result over `result_cap/0` cut to it, with a note of how much was
+  cut: what every tool the manager runs with is wrapped in.
+  """
+  @spec capped(Alloy.Tool.Inline.t()) :: Alloy.Tool.Inline.t()
+  def capped(tool) do
+    %{
+      tool
+      | execute: fn input, context ->
+          case tool.execute.(input, context) do
+            {status, "" <> text} -> {status, cut(text)}
+            other -> other
+          end
+        end
+    }
+  end
+
+  defp cut(text) when byte_size(text) <= @result_cap, do: text
+
+  defp cut(text) do
+    kept = whole(binary_part(text, 0, @result_cap), 3)
+
+    kept <>
+      "\n[Truncated: #{byte_size(text) - byte_size(kept)} of #{byte_size(text)} bytes cut, " <>
+      "over the cap of #{@result_cap} bytes on one tool result.]"
+  end
+
+  # Cut at a byte, a character may be split: its leading bytes (three at most) are dropped.
+  defp whole(text, 0), do: text
+
+  defp whole(text, left) do
+    if String.valid?(text),
+      do: text,
+      else: whole(binary_part(text, 0, byte_size(text) - 1), left - 1)
+  end
+
   @doc """
   The manager's own tools (hand_in, decide, look, tell, stop, message_chat) for the given
   manager settings: what its turns run with, and what POST /mcp/manager offers.
@@ -220,7 +287,7 @@ defmodule Workflow.Manager do
           stop(manager),
           message_chat()
         ],
-        &plain_id/1
+        &(&1 |> plain_id() |> capped())
       )
 
   # A tool given an id that is not a plain name refuses it before anything is done.
