@@ -84,7 +84,8 @@ defmodule Workflow.Report do
   @doc """
   Hands the report of `work`, queued with no slot free (`Workflow.Run.enqueue/1`),
   to the loop's line to the server, where there is one: status "queued", on no
-  step yet, holding no slot.
+  step yet, holding no slot, with `waiting_on` the ids of the works it is held on
+  (`Workflow.Run.waits_on/1`), and a note where one of those is stopped.
   """
   @spec queued(map()) :: :ok
   def queued(%{"id" => id} = work) do
@@ -102,13 +103,22 @@ defmodule Workflow.Report do
         "commit" => nil,
         "at" => Checkout.now(),
         "machine" => machine(),
-        "note" => nil
+        "note" => held_note(work),
+        "waiting_on" => Workflow.Run.waits_on(work)
       }
 
       for line <- lines, do: send(line, {:report, report})
     end
 
     :ok
+  end
+
+  # A work held on one stopped is waiting on a stopped work, for a person to decide.
+  defp held_note(work) do
+    case Workflow.Run.stopped_of(work["repo"], Workflow.Run.waits_on(work)) do
+      [] -> nil
+      ids -> "waiting on a stopped work: #{Enum.join(ids, ", ")}; a person decides"
+    end
   end
 
   @doc "The report of the work `id` checked out at `root`, or nil where no work was kept there."
@@ -138,9 +148,31 @@ defmodule Workflow.Report do
         "note" => note(seen)
       }
 
+      report = with_workflow(report, work["kind"])
+
       if status == "landed", do: Map.merge(report, landed(work, seen)), else: report
     else
       _none -> nil
+    end
+  end
+
+  # The whole workflow the work runs, from its file: its name, its steps with
+  # their actors, and its verify when it has one. Carried from the first report,
+  # so its full list of steps is shown before it reaches its second step.
+  defp with_workflow(report, kind) do
+    case Workflow.Workflows.load(kind) do
+      {:ok, %{name: name, steps: steps} = workflow} ->
+        carried =
+          %{
+            "name" => name,
+            "steps" => Enum.map(steps, &%{"name" => &1.name, "actor" => to_string(&1.actor)})
+          }
+          |> then(&if(workflow[:verify], do: Map.put(&1, "verify", workflow.verify), else: &1))
+
+        Map.put(report, "workflow", carried)
+
+      {:error, _why} ->
+        report
     end
   end
 

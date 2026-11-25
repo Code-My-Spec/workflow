@@ -21,19 +21,7 @@ defmodule Workflow.Journey do
   @noun "journey"
 
   @impl true
-  def steps do
-    [
-      %{name: "specify", actor: :qa, agent: Parts.qa(@word, @noun)},
-      %{name: "run", actor: :system},
-      %{name: "work", actor: :coder, agent: Parts.coder(@noun)},
-      %{name: "certify", actor: :system},
-      %{name: "review", actor: :reviewer, agent: Parts.reviewer(@noun, @key)},
-      %{name: "demo", actor: :system},
-      %{name: "approve", actor: :owner},
-      %{name: "promote", actor: :system},
-      Parts.ci_step()
-    ]
-  end
+  def steps, do: Workflow.Workflows.steps!(@noun)
 
   # An owner's rejection the coder has not had a turn with yet is kept under no
   # tree (`results["rejected"]`): it goes with whatever sends the work to the

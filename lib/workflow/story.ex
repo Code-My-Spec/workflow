@@ -20,17 +20,7 @@ defmodule Workflow.Story do
   @noun "story"
 
   @impl true
-  def steps do
-    [
-      %{name: "specify", actor: :qa, agent: Parts.qa(@word, @noun)},
-      %{name: "run", actor: :system},
-      %{name: "work", actor: :coder, agent: Parts.coder(@noun)},
-      %{name: "certify", actor: :system},
-      %{name: "review", actor: :reviewer, agent: Parts.reviewer(@noun, @key)},
-      %{name: "promote", actor: :system},
-      Parts.ci_step()
-    ]
-  end
+  def steps, do: Workflow.Workflows.steps!(@noun)
 
   @impl true
   def status(%{name: "ci"}, snapshot), do: Parts.ci(snapshot, "work")
