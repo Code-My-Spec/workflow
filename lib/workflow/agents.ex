@@ -243,7 +243,7 @@ defmodule Workflow.Agents do
       step.note,
       owner(work),
       review(step, work, snapshot),
-      said == [] && work["text"],
+      said == [] && text(work),
       said == [] && own(work),
       said == [] && pinned(work),
       project(work)
@@ -271,6 +271,18 @@ defmodule Workflow.Agents do
   end
 
   defp owner(_work), do: nil
+
+  # Seen live: a story in the story's shape (title, story, rules) has no text, so its
+  # agents were shown its criteria alone, went to the story files for the story, and
+  # built or judged a neighbouring one's. Its own title and story are said here.
+  defp text(%{"text" => "" <> text}), do: text
+
+  defp text(work) do
+    case Enum.filter([work["title"], work["story"]], &(is_binary(&1) and &1 != "")) do
+      [] -> nil
+      said -> Enum.join(said, "\n\n")
+    end
+  end
 
   # A story's or journey's own parts, so no agent goes to the story files for them.
   defp own(work) do
