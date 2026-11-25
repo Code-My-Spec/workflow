@@ -99,7 +99,7 @@ defmodule Workflow.Checkout do
 
     here = Path.join(root, project || ".")
 
-    case cmd("just", ["copy-setup"], cd: here, stderr_to_stdout: true, env: recipe_env([])) do
+    case copy_setup(here) do
       {_out, 0} ->
         File.rm(mark)
         root
@@ -114,6 +114,24 @@ defmodule Workflow.Checkout do
 
         {:error,
          "#{missing}`just copy-setup` failed in #{project || "."} (exit #{status}): #{String.trim(out)}"}
+    end
+  end
+
+  # Seen live: an app started from a fresh copy served no stylesheet (app.css 404),
+  # since a new worktree has no built assets. After copy-setup, the project's own
+  # `just copy-build`, where it has one, builds what its app serves; what that is,
+  # is the project's business. A project with no copy-build recipe skips it.
+  defp copy_setup(here) do
+    run = &cmd("just", [&1], cd: here, stderr_to_stdout: true, env: recipe_env([]))
+
+    with {_out, 0} <- run.("copy-setup") do
+      case run.("copy-build") do
+        {out, status} when status != 0 ->
+          if out =~ "does not contain recipe", do: {out, 0}, else: {out, status}
+
+        built ->
+          built
+      end
     end
   end
 

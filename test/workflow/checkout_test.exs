@@ -75,6 +75,72 @@ defmodule Workflow.CheckoutTest do
     refute File.dir?(main <> "-i1")
   end
 
+  test "work-copy-serves-its-styles: a new copy runs the project's copy-build after its copy-setup, so its app serves built assets",
+       %{tmp_dir: dir} do
+    # Stand-in recipes: copy-build is where a Phoenix project builds app.css; nothing real is built.
+    marks = Path.join(dir, "marks")
+
+    justfile = """
+    copy-setup:
+        echo setup >> "#{marks}"
+
+    copy-build:
+        echo build >> "#{marks}"
+
+    copy-teardown:
+    """
+
+    main = repo_with(Path.join(dir, "main"), [{"justfile", justfile}])
+
+    assert Checkout.own(main, "issue", "i1", nil) == main <> "-i1"
+    assert File.read!(marks) == "setup\nbuild\n"
+  end
+
+  test "work-copy-serves-its-styles: the loop asks for the build only by the recipe name copy-build, never mix",
+       %{tmp_dir: dir} do
+    test = self()
+
+    Application.put_env(:workflow, :cmd, fn command, args, opts ->
+      case {command, args} do
+        {"just", [recipe]} -> send(test, {:ran, command, recipe, opts[:cd]})
+        _git -> send(test, {:ran, command, args, opts[:cd]})
+      end
+
+      {"", 0}
+    end)
+
+    on_exit(fn -> Application.delete_env(:workflow, :cmd) end)
+
+    main = Path.join(dir, "main")
+    File.mkdir_p!(main)
+    Checkout.own(main, "issue", "i1", "app")
+
+    here = Path.join(main <> "-i1", "app")
+    assert_received {:ran, "just", "copy-setup", ^here}
+    assert_received {:ran, "just", "copy-build", ^here}
+    refute_received {:ran, "mix", _, _}
+  end
+
+  test "work-copy-serves-its-styles: a project with no copy-build recipe gets its copy as before",
+       %{tmp_dir: dir} do
+    main = repo_with(Path.join(dir, "main"), [{"justfile", "copy-setup:\n\ncopy-teardown:\n"}])
+
+    assert Checkout.own(main, "issue", "i1", nil) == main <> "-i1"
+    assert File.dir?(main <> "-i1")
+  end
+
+  test "work-copy-serves-its-styles: a copy-build that fails stops the copy, saying so",
+       %{tmp_dir: dir} do
+    main =
+      repo_with(Path.join(dir, "main"), [
+        {"justfile", "copy-setup:\n\ncopy-build:\n    exit 4\n\ncopy-teardown:\n"}
+      ])
+
+    assert {:error, why} = Checkout.own(main, "issue", "i1", nil)
+    assert why =~ "exit 4"
+    refute File.dir?(main <> "-i1")
+  end
+
   test "copy-lifecycle-recipes: a real project with no copy-setup recipe says so, and leaves no copy",
        %{tmp_dir: dir} do
     main = repo_with(Path.join(dir, "main"), [{"justfile", "certify dir:\n    true\n"}])
