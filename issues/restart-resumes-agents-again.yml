@@ -1,4 +1,4 @@
-id: "restart-resumes-agents"
+id: "restart-resumes-agents-again"
 kind: "issue"
 title: A restart resumes the agent of every work mid-step
 text: |-
