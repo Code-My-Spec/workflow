@@ -1,0 +1,15 @@
+id: "the-cap-belongs-to-the-machine"
+kind: "issue"
+title: The cap belongs to the machine
+text: |-
+  Slice 5 of the epic "Works, workflows and the queue" (loop side).
+
+  Fault today: the cap on works running at once is per project, so one machine that runs several projects can run the cap times the number of projects, all at once.
+
+  Wanted: one machine has one cap, and its slots are shared across every project it runs. Two or more projects on one machine never run more works between them than that cap. A work that would go past the shared cap doesn't start; it waits as it does at a project's cap today, and once later slices land it is queued. Today's per-project cap setting (config.json, now 5 for this project) must keep working for a machine running one project. Write down where the machine's cap is read from, and how a machine's projects agree on it, in the commit and in a short note under notes/.
+
+  Checks: tests run two projects in tmp dirs against one shared cap, with any server stubbed, never the real ~/.workflow or .git/workflow, and a fake agents run. Don't weaken existing tests; the full suite passes. Do not tag, publish, push, or run `just release`.
+criteria:
+  - "Two projects on one machine with a cap of N never have more than N works running between them."
+  - "When one project's work finishes, a waiting work from the other project can take the freed slot."
+  - "A machine running one project keeps today's behaviour under its configured cap."
