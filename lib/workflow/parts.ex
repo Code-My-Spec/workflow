@@ -199,8 +199,8 @@ defmodule Workflow.Parts do
   def perform("certify", %{"root" => root} = work, snapshot),
     do: Workflow.Checkout.certify(root, snapshot, work["project"], work["id"])
 
-  def perform("promote", %{"root" => root}, snapshot),
-    do: Workflow.Checkout.promote(root, snapshot)
+  def perform("promote", %{"root" => root} = work, snapshot),
+    do: Workflow.Checkout.promote(root, snapshot, work["id"])
 
   def observe(key, word, %{"id" => id} = work, snapshot) do
     %{named: named(work, id, word), id: id}
