@@ -123,9 +123,10 @@ defmodule Workflow.SignInTest do
     # A token about to expire is refreshed before dialing, and the file rewritten.
     File.write!(file, Jason.encode!(%{held | "expires_at" => System.system_time(:second) + 5}))
 
-    {dialed, log_dial} = with_log(fn -> Workflow.Server.uri(server, http) end)
+    {dialed, log_dial} = with_log(fn -> Workflow.Server.dial(server, :header, http) end)
 
-    assert dialed == "wss://loop.example/socket/websocket?token=access-two"
+    assert dialed[:uri] == "wss://loop.example/socket/websocket"
+    assert dialed[:headers] == [{"x-cms-token", "access-two"}]
     assert (File.stat!(file).mode &&& 0o777) == 0o600
 
     assert %{"access_token" => "access-two", "refresh_token" => "refresh-two"} =
