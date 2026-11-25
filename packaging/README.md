@@ -21,6 +21,19 @@ personal paths, emails and keys). It uploads the tarball as GitHub release
 
 The tarball is built for the architecture and macOS of the machine that builds it.
 
+## Build by hand (publishes nothing)
+
+In the repository's root, giving the CodeMySpec app's repository, run:
+
+    just package <app>
+
+It prints two lines, `tarball: <path>` and `sha256: <hash>`. Copy
+`packaging/codemyspec.rb` and, in the copy, replace `__VERSION__` with the
+version, `__URL__` with the url the tarball will be downloaded from, and
+`__SHA256__` with the printed hash. Those are the only lines to edit. Then
+hand off the tarball and the filled-in formula to the owner, who uploads the
+tarball and puts the formula in the tap.
+
 ## Install and run
 
     brew install codemyspec           # from the tap that holds the formula

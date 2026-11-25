@@ -61,5 +61,12 @@ defmodule Workflow.PackagingTest do
     assert steps =~ "`url`"
     assert steps =~ "`sha256`"
     assert steps =~ "workflow sign-in"
+
+    # It gives the by-hand steps, publishing nothing: run `just package`, fill the
+    # formula's own placeholders in from what it printed, and hand off.
+    assert steps =~ ~r/^    just package <app>$/m
+    assert steps =~ "__URL__"
+    assert steps =~ "__SHA256__"
+    assert steps =~ "hand off"
   end
 end
