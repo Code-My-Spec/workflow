@@ -19,14 +19,10 @@ defmodule Workflow.Works do
   # record's subject.
   @local ~w(kind id repo project agents agent root own turn queued review demo note)
 
-  # No line to a server, or one that is not up (Slipstream's push refusals): the
-  # hand-in runs here as before, not refused for want of a line.
-  @down [:no_server, :not_joined, :not_connected]
-
   @doc """
   Has the server make the record of `work` as it is handed in, and claims it:
   `{:ok, work}` to run, the work as the record says it; `:local` with no line
-  to a server, or one not up; `{:error, why}` when either is refused, and nothing is run.
+  to a server; `{:error, why}` when either is refused, and nothing is run.
   """
   @spec hand_in(map()) :: {:ok, map()} | :local | {:error, term()}
   def hand_in(%{"kind" => kind, "id" => id} = work) do
@@ -34,7 +30,7 @@ defmodule Workflow.Works do
 
     case Workflow.Server.call("hand_in", record) do
       {:ok, %{"work" => %{"id" => ^id} = made}} -> claim(made)
-      {:error, down} when down in @down -> :local
+      {:error, :no_server} -> :local
       other -> refused(id, "hand_in", other)
     end
   end

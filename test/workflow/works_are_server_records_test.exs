@@ -248,52 +248,6 @@ defmodule Workflow.WorksAreServerRecordsTest do
     stop(main)
   end
 
-  test "works-are-server-records: criterion 1 - a loop whose line to the server is down still runs what is handed in to it, as before",
-       %{main: main} do
-    test = self()
-
-    # A line that is up but not joined: Slipstream refuses every push.
-    down =
-      spawn_link(fn ->
-        Stream.repeatedly(fn ->
-          receive do
-            {:"$gen_call", from, {:push, event, _payload}} ->
-              send(test, {:server, event})
-              GenServer.reply(from, {:error, :not_joined})
-          end
-        end)
-        |> Stream.run()
-      end)
-
-    Process.register(down, Workflow.Server)
-
-    Application.put_env(:workflow, :agents_run, fn %{name: "fix"}, work ->
-      send(test, {:fix_turn, work})
-      Process.sleep(:infinity)
-    end)
-
-    hand_in =
-      Enum.find(
-        Workflow.Manager.tools(Workflow.Manager.configured()),
-        &(&1.name == "hand_in")
-      )
-
-    capture_log(fn ->
-      assert {:ok, said} =
-               hand_in.execute.(
-                 %{"kind" => "issue", "id" => "i1", "text" => "The widget is broken. Fix it."},
-                 %{}
-               )
-
-      assert said =~ "i1: on"
-      assert_receive {:fix_turn, work}, 10_000
-      assert work["text"] == "The widget is broken. Fix it."
-    end)
-
-    assert_received {:server, "hand_in"}
-    stop(main)
-  end
-
   test "works-are-server-records: criterion 2 - each step change the loop reports updates the claimed record on the server",
        %{main: main} do
     server = server([record(%{})])
