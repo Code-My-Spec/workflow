@@ -1,0 +1,19 @@
+id: "queue-done-whens-proven"
+kind: "issue"
+title: Queue epic done-whens are proven by tests on main
+text: |-
+  On the loop repo's main, each of the four done-whens below must be proven by a test. For each one, first check main: if a test already proves it, name that test and add nothing. If the test is missing, add it. If the behaviour itself is missing, build it and add a test that fails without it.
+
+  1. Slice 3 (the queue): with five works running, a sixth hand-in is queued, and it starts on its own when one of the five finishes.
+  2. Slice 4 (works wait on works): a work that names a prerequisite starts once that prerequisite has landed.
+  3. Slice 5 (parked works free their slot): a parked work, waiting on a person or on CI, frees its slot.
+  4. Slice 6 (the cap belongs to the machine): with two projects on one machine, no more works run at once than the cap, and queued works start oldest hand-in first.
+
+  The decision note must name the test that proves each of the four.
+
+  Tests use tmp dirs and fake agents. They must never use the real ~/.workflow or .git/workflow, or a real server. Do not weaken existing tests.
+criteria:
+  - "With five works running, a sixth hand-in is queued and starts on its own when one of the five finishes."
+  - "A work naming a prerequisite starts once that prerequisite has landed."
+  - "A parked work, waiting on a person or on CI, frees its slot."
+  - "With two projects on one machine, no more works run at once than the cap, and queued works start oldest hand-in first."
