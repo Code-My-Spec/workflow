@@ -403,29 +403,17 @@ defmodule Workflow.Manager do
                 {:ok, said}
 
               {:queued, work} ->
-                with {:ok, work} <- recorded(work) do
-                  Run.queue(work)
+                Run.queue(work)
 
-                  {:ok,
-                   "#{work["id"]}: story #{work["story_of"]} at #{work["story_at"]}, queued " <>
-                     "behind #{work["behind"]}: it starts once #{work["behind"]} is done or " <>
-                     "stopped, and builds the difference from #{work["story_from"]}."}
-                else
-                  {:refused, said} -> {:ok, said}
-                end
+                {:ok,
+                 "#{work["id"]}: story #{work["story_of"]} at #{work["story_at"]}, queued " <>
+                   "behind #{work["behind"]}: it starts once #{work["behind"]} is done or " <>
+                   "stopped, and builds the difference from #{work["story_from"]}."}
 
               work ->
                 case issue_recorded(work, manager) do
-                  {:refused, said} ->
-                    {:ok, said}
-
-                  note ->
-                    with {:ok, work} <- recorded(work),
-                         {:ok, said} <- started(work) do
-                      {:ok, said <> note}
-                    else
-                      {:refused, said} -> {:ok, said}
-                    end
+                  {:refused, said} -> {:ok, said}
+                  note -> with {:ok, said} <- started(work), do: {:ok, said <> note}
                 end
             end
         end
@@ -809,23 +797,6 @@ defmodule Workflow.Manager do
     manager
     |> Map.take(["repo", "project", "agents"])
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
-  end
-
-  # With a line to a server, the work is a record the server makes at hand-in,
-  # and the loop runs the record it claims (`Workflow.Works.hand_in/1`).
-  defp recorded(work) do
-    case Workflow.Works.hand_in(work) do
-      :local ->
-        {:ok, work}
-
-      {:ok, claimed} ->
-        {:ok, Map.merge(work, claimed)}
-
-      {:error, why} ->
-        {:refused,
-         "#{work["id"]}: the server did not take the hand-in (#{inspect(why)}). Nothing " <>
-           "was started; hand it in again."}
-    end
   end
 
   defp started(work) do
