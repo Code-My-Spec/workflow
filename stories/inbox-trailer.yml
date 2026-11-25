@@ -1,5 +1,5 @@
 title: The chat learns its inbox has messages
-workflow: talk-to-the-chat
+journey: talk-to-the-chat
 story: >
   As a customer who cannot be pushed to in my chat, I want my chat to learn that messages are waiting whenever it touches my project, so that it asks me the team's questions the next time I say anything.
 rules:

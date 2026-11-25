@@ -1,5 +1,5 @@
 title: Get a story built, test first
-workflow: build-and-land-work
+journey: build-and-land-work
 story: >
   As a customer I want a story handed in to be built by agents that first prove what is missing, so that what lands does what the story says.
 rules:

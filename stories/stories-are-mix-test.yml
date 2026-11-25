@@ -1,5 +1,5 @@
 title: A story's tests are plain mix test
-workflow: Build and land work
+journey: Build and land work
 story: >
   As an owner, I want one test command and no special macros, so that the tests for a story are ordinary tests any Elixir developer and any agent can read.
 rules:

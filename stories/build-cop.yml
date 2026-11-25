@@ -1,5 +1,5 @@
 title: A push the box refuses becomes an issue the loop fixes
-workflow: Get work off the machine
+journey: Get work off the machine
 story: >
   As an owner, I want anything the box refuses to be fixed without me, so that dev only ever holds what passed every test.
 rules:
