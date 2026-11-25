@@ -145,6 +145,74 @@ defmodule Workflow.NoServerSkipsCiTest do
     assert %{"ci" => %{"verdict" => "skipped"}} = Workflow.Run.look(work).found
   end
 
+  # Parked at ci by a loop that had a server, its in-flight file then rewritten by `change`,
+  # and the loop started again with no server.
+  defp restarted_without_server(work, server, file, change) do
+    Application.put_env(:workflow, :server, server)
+    land(work)
+    assert %{step: "ci", done: false} = Workflow.Run.look(work)
+
+    file
+    |> File.read!()
+    |> Jason.decode!()
+    |> change.()
+    |> Jason.encode!()
+    |> then(&File.write!(file, &1))
+
+    Application.delete_env(:workflow, :server)
+
+    # At once: no check runs again, and no agent is given a turn.
+    test = self()
+
+    Application.put_env(:workflow, :cmd, fn
+      "just", args, _opts -> send(test, {:just, args}) && {"", 0}
+      command, args, opts -> System.cmd(command, args, opts)
+    end)
+
+    Application.put_env(:workflow, :agents_run, fn step, _work ->
+      send(test, {:turn, step.name})
+      {%{"status" => "pass"}, nil}
+    end)
+
+    capture_log(fn ->
+      assert Workflow.Run.resume() == :ok
+      Workflow.Settled.idle()
+    end)
+
+    refute_received {:just, _args}, "a check ran again"
+    refute_received {:turn, _step}, "an agent was given a turn"
+  end
+
+  # Seen live: two works kept in flight with no repo of their own to ask whether
+  # they landed were resumed past the landed path, and sat at ci.
+  test "skip-applies-to-every-parked-ci-work: criterion 1 - with no server, a work parked at ci that resume does not find landed finishes as skipped at startup",
+       %{work: work, server: server, in_flight: file} do
+    restarted_without_server(work, server, file, &Map.delete(&1, "repo"))
+
+    refute File.exists?(file), "the work done is still in flight"
+    assert %{done: true, note: @note} = Workflow.Run.look(work)
+    assert %{"ci" => %{"verdict" => "skipped"}} = Workflow.Run.look(work).found
+  end
+
+  # The paths a work is kept in flight at ci by: parked by the landed path, or kept
+  # by a turn or a hand-in, with or without a repo to ask whether it landed.
+  for {path, drop} <- [
+        {"parked, with its repo", []},
+        {"not parked, with its repo", ["parked"]},
+        {"parked, with no repo", ["repo"]},
+        {"not parked, with no repo", ["parked", "repo"]}
+      ] do
+    @drop drop
+    test "skip-applies-to-every-parked-ci-work: criterion 2 - with no server, a work at ci kept #{path} finishes as skipped at startup",
+         %{work: work, server: server, in_flight: file} do
+      restarted_without_server(work, server, file, &Map.drop(&1, @drop))
+
+      refute File.exists?(file), "the work done is still in flight"
+      assert %{done: true, note: @note} = Workflow.Run.look(work)
+      assert %{"ci" => %{"verdict" => "skipped"}} = Workflow.Run.look(work).found
+    end
+  end
+
   test "no-server-skips-ci: criterion 3 - with a server configured, a landed work still waits at ci for the server's event",
        %{work: work, server: server, in_flight: file} do
     Application.put_env(:workflow, :server, server)
