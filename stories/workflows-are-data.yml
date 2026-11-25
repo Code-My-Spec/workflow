@@ -1,0 +1,41 @@
+id: vckx9kjj
+title: Workflows are data
+journey: build-and-land-work
+story: >
+  As the person running the loop I want each kind of work's steps to come from a workflow file, sent with every work the loop starts, so that a new kind of work, such as a design pass or a DevOps run, needs a file and not a loop release.
+rules:
+  - id: vd4wsq55
+    rule: Each kind of work is a workflow file naming its steps in order, each step's actor, and, for an agent's step, its brief and tools.
+    scenarios:
+      - id: acmxdy8d
+        happy: The loop's story, issue and journey workflows are files, and each kind of work runs exactly as it did when its steps were code.
+      - id: pey2ejkd
+        fails: A workflow file names a step the loop has no implementation for, and the loop refuses to start, naming the file and the step.
+  - id: qsknyt7u
+    rule: The loop ships its own workflow files, and a plugin's workflows folder adds new ones or replaces the loop's by name.
+    scenarios:
+      - id: 3yyayg7n
+        happy: A plugin with a design-pass workflow file lets the manager hand in a design pass, with no loop release.
+      - id: vztybp3g
+        happy: A plugin's own story workflow file with a changed coder brief is what the next story's coder is told.
+  - id: ynwt6vbn
+    rule: What a step does and how its status is read stays in the loop, found by the step's name; only the list of steps, their order, their actors and agent briefs and tools are data.
+    scenarios:
+      - id: kuhncxsu
+        happy: A workflow that lists review before certify runs its steps in that order, each doing what it does today.
+  - id: hbasbmu7
+    rule: When a work starts, its first report carries the whole workflow it runs, its name, its steps with their actors, and its verify when it has one.
+    scenarios:
+      - id: yervbbzd
+        happy: CodeMySpec shows a work's full list of steps from its first report, before the work reaches its second step.
+  - id: 5xh2re2m
+    rule: A workflow may name a verify, run once at the end over the work's events; with none, the work is done when its last step is.
+    scenarios:
+      - id: 95kbvcgm
+        happy: Story, issue and journey run with no verify and end as they do today.
+  - id: 28bwg4rk
+    rule: A work already in flight when the loop moves to workflow files carries on from the step it was at.
+    scenarios:
+      - id: 9q7kmz4t
+        happy: A story waiting at review when the loop restarts on the new version resumes at review.
+questions: []
