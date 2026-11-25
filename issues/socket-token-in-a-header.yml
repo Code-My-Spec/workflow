@@ -1,0 +1,16 @@
+id: "socket-token-in-a-header"
+kind: "issue"
+title: Socket token goes in a header, not the URL
+text: |-
+  Fault: the loop connects to the server socket (wss://.../socket/websocket) with its access token in the URL's query string. Prod kamal-proxy logs request URLs, so every token ends up in its logs in plain text.
+
+  Wanted: send the token as the request header x-cms-token on the socket connect, and stop putting it in the URL.
+
+  Fallback while the server change rolls out: the server side (carve, CMS) is landing now and will keep accepting the query form. Until that is on prod, if a header connect is refused with 403, retry once with the token in the query form. Do not fall back for any other failure.
+
+  The token must never be logged, written to disk, or put into conversation files, including in test output.
+
+  Check (done when): a test shows the connect URL carries no token and the x-cms-token header does. A second test shows a 403 on the header connect falls back to the query form, and any other failure does not. Tests must not use the real ~/.workflow or .git/workflow, or a real server.
+criteria:
+  - "The socket connect URL carries no access token, and the x-cms-token header carries it."
+  - "When the header connect is refused with 403, the loop connects again with the token in the query form; on any other failure it does not."
