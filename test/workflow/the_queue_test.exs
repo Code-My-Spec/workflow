@@ -20,7 +20,8 @@ defmodule Workflow.TheQueueTest do
             :push,
             :manager,
             :manager_run,
-            :recipients
+            :recipients,
+            :server
           ],
           do: {key, Application.fetch_env(:workflow, key)}
 
@@ -43,6 +44,14 @@ defmodule Workflow.TheQueueTest do
     # No such remote: promote merges into the main copy and pushes nothing.
     Application.put_env(:workflow, :push, %{"remote" => "nowhere", "branch" => "main"})
     Application.delete_env(:workflow, :recipients)
+
+    # A stubbed server, so a work that lands waits at ci for its event (with none,
+    # ci is skipped at once): its state dir holds no sign-in, so nothing is asked of it.
+    Application.put_env(:workflow, :server, %{
+      "url" => "ws://x",
+      "project_id" => "p1",
+      "state_dir" => Path.join(dir, "state")
+    })
 
     Application.put_env(:workflow, :manager_run, fn _message, opts ->
       {:ok, %{text: "noted", messages: opts[:messages]}}
