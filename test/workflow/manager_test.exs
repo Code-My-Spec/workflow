@@ -1196,20 +1196,23 @@ defmodule Workflow.ManagerTest do
     assert %{"repo" => ^repo, "project" => "workflow", "agents" => ^agents} = work
     assert %{"kind" => "issue", "id" => "i1", "text" => "saving crashes"} = work
 
-    # With one work in flight and a cap of one, it refuses in words, and starts nothing.
-    assert {:ok, refused} = use_tool.("hand_in", %{input | "id" => "i2"})
-    assert refused =~ ~r/cap|in flight/i
+    # With one work in flight and a cap of one, it queues it in words, and starts nothing yet.
+    assert {:ok, queued} = use_tool.("hand_in", %{input | "id" => "i2"})
+    assert queued =~ ~r/cap|in flight/i
     refute_receive {:agent, _pid, %{"id" => "i2"}}, 200
 
     # decide hands the waiting work in again with the owner's decision.
     assert {:ok, _said} =
              use_tool.("decide", %{"id" => "j1", "kind" => "journey", "demo" => "approve"})
 
-    # The killed agent's work is stopped and the manager told so. With i1's turn
-    # gone every run ends by itself, so all are waited on, not on a clock, and no
-    # telling lands in the next test's manager.
+    # The killed agent's work is stopped and the manager told so. Its slot frees,
+    # and the queued i2 starts on its own: its agent is killed too. With both
+    # turns gone every run ends by itself, so all are waited on, not on a clock,
+    # and no telling lands in the next test's manager.
     capture_log(fn ->
       Process.exit(agent, :kill)
+      assert_receive {:agent, second, %{"id" => "i2"}}, 15_000
+      Process.exit(second, :kill)
       Workflow.Settled.idle()
     end)
 

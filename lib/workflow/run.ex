@@ -57,6 +57,8 @@ defmodule Workflow.Run do
   @spec cancel(map()) :: :ok
   def cancel(%{"repo" => repo, "kind" => kind, "id" => id} = work) do
     Checkout.cancel(repo, id)
+    # One still in the queue never starts.
+    dequeue(id)
     end_turns(Checkout.root(repo, id))
     unfly(work, {"stopped", nil})
     close_browser(id)
@@ -933,22 +935,21 @@ defmodule Workflow.Run do
 
   defp slot_dir, do: Path.join(works_dir(), "slot")
 
-  # The first work waiting for a slot takes the one free, with the manager's
-  # agents, whose keys were kept nowhere.
-  defp next_in_slot do
+  @doc """
+  Fills a free slot, if there is one: a parked work waiting for a slot
+  (`wait_for_slot/1`) goes first, since it is already under way; else the top
+  of this project's queue (`enqueue/1`), when it is the machine's next. Called
+  whenever a slot may have freed, and now and then by the served loop, so a
+  slot freed by another project's work is taken by this one's queue too.
+  """
+  @spec next_in_slot() :: :ok
+  def next_in_slot do
     :global.trans(
       {{__MODULE__, :slot}, self()},
       fn ->
-        with true <- slot?(),
-             [first | _] <- Enum.sort_by(read_works(slot_dir()), & &1["waiting_since"]),
-             :ok <- File.rm(Path.join(slot_dir(), "#{first["id"]}.json")) do
-          agents = (Workflow.Manager.configured() || %{})["agents"]
-          {event, work} = first |> Map.delete("waiting_since") |> Map.pop("event")
-          work = if agents, do: Map.put(work, "agents", agents), else: work
-
-          if event,
-            do: Task.start(fn -> watch(%{name: event, actor: :system, note: nil}, work) end),
-            else: Task.start(fn -> start(work) end)
+        case slot?() && Enum.sort_by(read_works(slot_dir()), & &1["waiting_since"]) do
+          [first | _] -> resumed(first)
+          _none -> next_queued()
         end
       end,
       [node()]
@@ -956,6 +957,128 @@ defmodule Workflow.Run do
 
     :ok
   end
+
+  # The first work waiting for a slot takes the one free, with the manager's
+  # agents, whose keys were kept nowhere.
+  defp resumed(first) do
+    with :ok <- File.rm(Path.join(slot_dir(), "#{first["id"]}.json")) do
+      {event, work} = first |> Map.delete("waiting_since") |> Map.pop("event")
+      work = with_agents(work)
+
+      if event,
+        do: Task.start(fn -> watch(%{name: event, actor: :system, note: nil}, work) end),
+        else: Task.start(fn -> start(work) end)
+    end
+  end
+
+  defp with_agents(work) do
+    agents = (Workflow.Manager.configured() || %{})["agents"]
+    if agents, do: Map.put(work, "agents", agents), else: work
+  end
+
+  # The top of this project's queue starts, as the queue is ordered now, when a
+  # slot is free under the cap it was handed in at, and no other project on the
+  # machine has a work queued longer: across projects, the first handed in goes
+  # first. It is kept in flight before it is started, so the slot is taken at once.
+  defp next_queued do
+    with [top | rest] = own <- queued_works(),
+         cap = top["cap"] || (Workflow.Manager.configured() || %{})["cap"] || 3,
+         {flying, cap} when flying < cap <- Workflow.Machine.in_flight(cap),
+         since = longest(own),
+         true <-
+           Enum.all?(
+             Workflow.Machine.others(),
+             &((longest(queued_works(&1)) || since + 1) > since)
+           ) do
+      write_queue(rest)
+      work = top |> Map.drop(["handed_in_at", "cap"]) |> with_agents()
+      fly(work)
+
+      Task.start(fn ->
+        # Not runnable after all: it holds no slot.
+        with {status, _agent} when status in [:none, :cancelled] <- start(work), do: land(work)
+      end)
+    end
+  end
+
+  # When the longest-queued work of a queue was handed in, nil for none.
+  defp longest(queue), do: queue |> Enum.map(& &1["handed_in_at"]) |> Enum.min(fn -> nil end)
+
+  @doc """
+  Queues a work handed in with no slot free: kept, as it was handed in (its
+  text and criteria), at the end of this project's queue (the works directory's
+  `queue/queue.json`), reported as queued, and started by `next_in_slot/0` once
+  a slot frees and it is the queue's top.
+  """
+  @spec enqueue(map()) :: :ok
+  def enqueue(%{"id" => id} = work) do
+    queued = work |> keyless() |> Map.put("handed_in_at", System.os_time(:nanosecond))
+
+    :global.trans(
+      {{__MODULE__, :slot}, self()},
+      fn -> write_queue(Enum.reject(queued_works(), &(&1["id"] == id)) ++ [queued]) end,
+      [node()]
+    )
+
+    Workflow.Report.queued(work)
+    # A slot freed while it was being kept is not missed.
+    next_in_slot()
+  end
+
+  @doc """
+  Reorders this project's queue: the works `ids` names first, in that order,
+  then the rest as they were. The loop takes the queue in this order from the
+  next free slot on, and never sorts it itself.
+  """
+  @spec reorder([String.t()]) :: :ok
+  def reorder(ids) when is_list(ids) do
+    :global.trans(
+      {{__MODULE__, :slot}, self()},
+      fn ->
+        {named, rest} = Enum.split_with(queued_works(), &(&1["id"] in ids))
+        named = Enum.sort_by(named, fn work -> Enum.find_index(ids, &(&1 == work["id"])) end)
+        write_queue(named ++ rest)
+      end,
+      [node()]
+    )
+
+    next_in_slot()
+  end
+
+  @doc "Takes the work `id` out of this project's queue, where it is in it."
+  @spec dequeue(String.t()) :: :ok
+  def dequeue(id) do
+    :global.trans(
+      {{__MODULE__, :slot}, self()},
+      fn ->
+        case queued_works() do
+          [] -> :ok
+          queue -> write_queue(Enum.reject(queue, &(&1["id"] == id)))
+        end
+      end,
+      [node()]
+    )
+
+    :ok
+  end
+
+  @doc "The queue of the project whose works are kept in `dir`, in its order."
+  @spec queued_works(String.t()) :: [map()]
+  def queued_works(dir \\ works_dir()) do
+    with {:ok, json} <- File.read(queue_file(dir)),
+         {:ok, queue} when is_list(queue) <- Jason.decode(json) do
+      Enum.filter(queue, &is_map/1)
+    else
+      _none -> []
+    end
+  end
+
+  defp write_queue(queue) do
+    File.mkdir_p!(Path.dirname(queue_file(works_dir())))
+    File.write!(queue_file(works_dir()), Jason.encode!(queue))
+  end
+
+  defp queue_file(dir), do: Path.join([dir, "queue", "queue.json"])
 
   @doc """
   Queues `work` behind the work its `"behind"` names: kept under the works

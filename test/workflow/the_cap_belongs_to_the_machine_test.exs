@@ -88,10 +88,11 @@ defmodule Workflow.TheCapBelongsToTheMachineTest do
     assert_receive {:agent, "fix", ^id}, 15_000
   end
 
-  defp refused(project, id, cap) do
+  # Past the cap a work is queued (the-queue), not started: it holds no slot.
+  defp queued(project, id, cap) do
     as(project)
     assert {:ok, said} = project.hand_in.(issue(id), %{})
-    assert said =~ "Refused"
+    assert said =~ "queued"
     assert said =~ "at the cap of #{cap}"
     refute File.exists?(Path.join(project.works, "#{id}.json"))
     refute_receive {:agent, _step, ^id}, 200
@@ -107,18 +108,21 @@ defmodule Workflow.TheCapBelongsToTheMachineTest do
     started(b, "b1")
 
     # Criterion 1: neither project starts a third, though each runs only one.
-    refused(b, "b2", 2)
-    refused(a, "a2", 2)
+    queued(b, "b2", 2)
+    queued(a, "a2", 2)
 
     # Criterion 2: a's work ends, and b's waiting work takes the freed slot.
     as(a)
     assert {:ok, _said} = a.stop.(%{"id" => "a1", "kind" => "issue"}, %{})
     refute File.exists?(Path.join(a.works, "a1.json"))
+    refute_receive {:agent, _step, "a2"}, 200
 
-    started(b, "b2")
+    as(b)
+    Workflow.Run.next_in_slot()
+    assert_receive {:agent, "fix", "b2"}, 15_000
 
     # The slot is taken again: the machine is full once more.
-    refused(a, "a3", 2)
+    queued(a, "a3", 2)
   end
 
   test "the-cap-belongs-to-the-machine: criterion 3, a machine running one project keeps its configured cap",
@@ -126,7 +130,7 @@ defmodule Workflow.TheCapBelongsToTheMachineTest do
     a = project(dir, "a", 3)
 
     for id <- ["a1", "a2", "a3"], do: started(a, id)
-    refused(a, "a4", 3)
+    queued(a, "a4", 3)
   end
 
   test "the-cap-belongs-to-the-machine: the projects agree on the smallest cap any of them names",
@@ -136,6 +140,6 @@ defmodule Workflow.TheCapBelongsToTheMachineTest do
 
     started(a, "a1")
     started(b, "b1")
-    refused(a, "a2", 2)
+    queued(a, "a2", 2)
   end
 end

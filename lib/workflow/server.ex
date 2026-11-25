@@ -149,6 +149,13 @@ defmodule Workflow.Server do
     {:ok, socket}
   end
 
+  # Someone on the project reordered its queue: taken as given from the next free slot.
+  def handle_message(_topic, "reorder", %{"order" => ids}, socket) when is_list(ids) do
+    Logger.info("[Workflow.Server] reorder #{Enum.join(ids, ", ")}")
+    Task.start(fn -> Workflow.Run.reorder(ids) end)
+    {:ok, socket}
+  end
+
   def handle_message(_topic, _event, _payload, socket), do: {:ok, socket}
 
   # A push whose reply is waited on: the caller is answered when it comes.
