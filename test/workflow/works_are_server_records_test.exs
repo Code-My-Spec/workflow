@@ -393,6 +393,7 @@ defmodule Workflow.WorksAreServerRecordsTest do
       assert Workflow.Works.recover() == :ok
       assert_receive {:ran, _step, _first}, 10_000
       refute_receive {:ran, _step, _second}, 500
+      assert_received {:server, "report", %{"work_status" => "queued"}}
     end)
 
     waiting = Path.wildcard(Path.join([Workflow.Run.works_dir(), "slot", "*.json"]))

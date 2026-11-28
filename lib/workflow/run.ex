@@ -1033,6 +1033,8 @@ defmodule Workflow.Run do
     since = System.os_time(:nanosecond)
     work = work |> keyless() |> Map.put("waiting_since", since)
     File.write!(Path.join(slot_dir(), "#{id}.json"), Jason.encode!(work))
+    # Its record shows it queued, not the running it may have been before.
+    Workflow.Report.queued(work)
     # A slot freed while it was being kept is not missed.
     next_in_slot()
   end
