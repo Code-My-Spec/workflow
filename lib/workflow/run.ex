@@ -862,7 +862,8 @@ defmodule Workflow.Run do
   def resume do
     works =
       for file <- Path.wildcard(Path.join(works_dir(), "*.json")),
-          {:ok, %{} = work} <- [file |> File.read!() |> Jason.decode()],
+          {:ok, json} <- [File.read(file)],
+          {:ok, %{} = work} <- [Jason.decode(json)],
           known?(work),
           do: work
 

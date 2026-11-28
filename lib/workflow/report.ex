@@ -179,8 +179,10 @@ defmodule Workflow.Report do
   @doc "The report of every work in flight: what is sent each time the line is made or re-made."
   @spec in_flight() :: [map()]
   def in_flight do
+    # A work that ends while this runs takes its file with it: it is skipped.
     for file <- Path.wildcard(Path.join(Workflow.Run.works_dir(), "*.json")),
-        {:ok, %{"id" => id} = work} <- [file |> File.read!() |> Jason.decode()],
+        {:ok, json} <- [File.read(file)],
+        {:ok, %{"id" => id} = work} <- [Jason.decode(json)],
         root = work["root"] || (work["repo"] && Checkout.root(work["repo"], id)),
         is_binary(root) and File.dir?(root),
         report = safely(fn -> of(root, id) end),
