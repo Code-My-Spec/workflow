@@ -83,9 +83,11 @@ defmodule Workflow.Works do
     :ok
   end
 
-  # A work queued behind another is queued again; any other is started.
+  # A work queued behind another is queued again; any other is started while
+  # the machine has a slot, else waits for one. Seen live: a restart started all
+  # 21 claimed works at once against a cap of 5, and the machine ground to a halt.
   defp run(%{"behind" => "" <> _} = work), do: Run.queue(work)
-  defp run(work), do: Run.start(work)
+  defp run(work), do: if(Run.slot?(), do: Run.start(work), else: Run.wait_for_slot(work))
 
   # The work a record says, run here with the manager's repository, project and
   # agents, and the agent's turn on the step the record shows given back.

@@ -373,4 +373,36 @@ defmodule Workflow.WorksAreServerRecordsTest do
 
     stop(main)
   end
+
+  test "a restart recovers no more claimed works than the machine has slots; the rest wait for one",
+       %{main: main} do
+    test = self()
+    Application.put_env(:workflow, :manager, Map.put(Workflow.Manager.configured(), "cap", 1))
+
+    server(
+      for id <- ["i1", "i2"],
+          do: record(%{"id" => id, "claimed_by" => "loop-p1", "status" => "running"})
+    )
+
+    Application.put_env(:workflow, :agents_run, fn step, work ->
+      send(test, {:ran, step.name, work["id"]})
+      Process.sleep(:infinity)
+    end)
+
+    capture_log(fn ->
+      assert Workflow.Works.recover() == :ok
+      assert_receive {:ran, _step, _first}, 10_000
+      refute_receive {:ran, _step, _second}, 500
+    end)
+
+    waiting = Path.wildcard(Path.join([Workflow.Run.works_dir(), "slot", "*.json"]))
+    assert length(waiting) == 1
+
+    capture_log(fn ->
+      for id <- ["i1", "i2"],
+          do: Workflow.Run.cancel(%{"kind" => "issue", "id" => id, "repo" => main})
+
+      Workflow.Settled.idle()
+    end)
+  end
 end
