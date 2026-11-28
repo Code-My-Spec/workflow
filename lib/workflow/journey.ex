@@ -82,7 +82,7 @@ defmodule Workflow.Journey do
 
   @impl true
   def perform("demo", %{"root" => root} = work, _snapshot),
-    do: Workflow.Checkout.demo(root, work["project"])
+    do: Workflow.Checkout.demo(root, work["project"], work["id"])
 
   def perform(name, work, snapshot), do: Parts.perform(name, work, snapshot)
 

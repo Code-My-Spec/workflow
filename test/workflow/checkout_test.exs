@@ -830,6 +830,9 @@ defmodule Workflow.CheckoutTest do
       "git", ["merge" | _], _opts ->
         {"", 0}
 
+      "just", ["--show", _recipe], _opts ->
+        {"", 0}
+
       "just", [_recipe, _run], opts ->
         send(test, {:env, opts[:env]})
         File.mkdir_p!(Path.join(evidence, "g1"))
@@ -885,6 +888,21 @@ defmodule Workflow.CheckoutTest do
     end)
 
     on_exit(fn -> Application.delete_env(:workflow, :http) end)
+  end
+
+  test "the demo is given the evidence context demo/<work id>, and its screenshots are sent up as certify's are",
+       %{tmp_dir: dir} do
+    {project, evidence} = leaves_evidence(dir, 0)
+    server_line(true)
+    puts_to_test()
+
+    Checkout.demo(project, nil, "j1")
+
+    assert_received {:env, env}
+    assert {"EVIDENCE_CONTEXT", "demo/j1"} in env
+    assert_received {:put, "https://up.example/g1/shot.png", _put}
+    assert_received {:push, "uploaded", %{"project_id" => "p1", "guids" => ["g1"]}}
+    refute File.exists?(Path.join(evidence, "g1"))
   end
 
   test "loop-waits-on-evidence: criterion 6 - certify is given its evidence context and correlation, and the new evidence is presigned, PUT, marked uploaded and deleted",

@@ -59,7 +59,7 @@ defmodule Workflow.RecipesKnowThePluginTest do
     assert is_binary(root)
     Checkout.test(root, nil, "plugin-#{name}")
     Checkout.analyse(root, nil, "certify", [{"EXTRA", "given"}])
-    Checkout.demo(root, nil)
+    Checkout.demo(root, nil, "plugin-#{name}")
     Checkout.disown(repo, "issue", "plugin-#{name}", nil)
 
     Map.new(~w(copy-setup copy-teardown run certify demo), fn file ->

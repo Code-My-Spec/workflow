@@ -3,7 +3,7 @@ defmodule Workflow.Upload do
   The evidence a `just certify` or `just run` of the loop's leaves in the
   copy, sent to the server over the loop's channel (`Workflow.Server`).
 
-  The recipe is given EVIDENCE_CONTEXT (`certify/<work id>` or `run/<work id>`)
+  The recipe is given EVIDENCE_CONTEXT (`certify/<work id>`, `run/<work id>` or `demo/<work id>`)
   and one EVIDENCE_CORRELATION uuid. Afterwards each new
   `.code_my_spec/evidence/*.sarif` file and each file in a new `<guid>/` folder
   there is sent: `presign` `{project_id, files}` is pushed and answers

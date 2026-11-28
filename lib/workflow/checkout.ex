@@ -782,13 +782,15 @@ defmodule Workflow.Checkout do
 
   @doc """
   Runs the project's demo, as `just demo <dir>` into the `demo` folder of the tree's
-  analysis directory, the way certify is run. A project with no `demo` recipe has no
-  demo: `%{"status" => "none"}`, not a failure.
+  analysis directory, the way certify is run, with the evidence context
+  `demo/<work id>`: the evidence it leaves (its screenshots) is sent up as
+  certify's is. A project with no `demo` recipe has no demo:
+  `%{"status" => "none"}`, not a failure.
   """
-  @spec demo(String.t(), String.t() | nil) :: map()
-  def demo(root, dir) do
+  @spec demo(String.t(), String.t() | nil, String.t()) :: map()
+  def demo(root, dir, id) do
     case cmd("just", ["--show", "demo"], cd: Path.join(root, dir || "."), stderr_to_stdout: true) do
-      {_shown, 0} -> analyse(root, dir, "demo", [], "demo")
+      {_shown, 0} -> analyse(root, dir, "demo", [], "demo", "demo/#{id}")
       _no_recipe -> %{"status" => "none"}
     end
   end
@@ -802,7 +804,7 @@ defmodule Workflow.Checkout do
   latest run read, not run again. With `into`, the recipe is given that folder of
   the tree's analysis directory instead.
 
-  With a `context` (`certify/<work id>`, `run/<work id>`), the recipe is also
+  With a `context` (`certify/<work id>`, `run/<work id>`, `demo/<work id>`), the recipe is also
   given EVIDENCE_CONTEXT as that and one EVIDENCE_CORRELATION uuid, and the
   evidence it leaves in the project is sent up afterwards (`Workflow.Upload`).
   The verdict is the recipe's exit, whatever becomes of the upload.
