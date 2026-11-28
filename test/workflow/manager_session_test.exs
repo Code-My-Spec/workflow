@@ -89,6 +89,43 @@ defmodule Workflow.ManagerSessionTest do
     assert byte_size(:erlang.term_to_binary(said.messages)) < 400_000
   end
 
+  test "past the window, Alloy summarizes even when clearing tool results alone would fit" do
+    {:ok, pid} =
+      Alloy.Provider.Test.start_link([
+        Alloy.Provider.Test.text_response("summary of the earlier turns"),
+        Alloy.Provider.Test.text_response("answered")
+      ])
+
+    # About 96k tokens as Alloy counts, nearly all of it old tool results.
+    messages =
+      Enum.flat_map(1..40, fn i ->
+        id = "t#{i}"
+
+        [
+          Alloy.Message.assistant_blocks([
+            %{type: "tool_use", id: id, name: "look", input: %{}}
+          ]),
+          Alloy.Message.tool_results([
+            Alloy.Message.tool_result_block(id, String.duplicate("r", 9_600))
+          ])
+        ]
+      end)
+
+    {:ok, said} =
+      Alloy.run(
+        "one more",
+        [
+          messages: [Alloy.Message.user("start") | messages],
+          provider: {Alloy.Provider.Test, %{agent_pid: pid}},
+          max_retries: 0
+        ] ++ Workflow.Agents.window({AlloyClaudeCode, %{}})
+      )
+
+    # The summary was asked for, so the scripted answer came second.
+    assert said.text == "answered"
+    assert Enum.any?(said.messages, &(Alloy.Message.text(&1) =~ "summary of the earlier turns"))
+  end
+
   test "a tool result over the cap is cut, with a note of how much" do
     # A tool whose one result is 4 MB, as an MCP server's can be.
     huge = String.duplicate("r", 4_000_000)

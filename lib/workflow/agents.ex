@@ -240,11 +240,17 @@ defmodule Workflow.Agents do
   # and Alloy counts four bytes a token where a transcript runs nearer 2.4. So
   # 80k as Alloy counts compacts at about 120k real. A miss is a refused prompt,
   # which Alloy compacts and retries.
+  #
+  # Any edit to the history starts a fresh, uncached session, so compaction
+  # always summarizes: clearing old tool results alone would leave the fresh
+  # session just under the window and soon past it again.
   @claude_code_window 80_000
 
   @doc "The run options that size the context Alloy compacts to, for this provider."
   @spec window({module(), map()}) :: keyword()
-  def window({AlloyClaudeCode, _config}), do: [max_tokens: @claude_code_window]
+  def window({AlloyClaudeCode, _config}),
+    do: [max_tokens: @claude_code_window, compaction: %{clear_tool_results: false}]
+
   def window(_provider), do: []
 
   @doc "The provider session a run ended in, nil when it has none."
