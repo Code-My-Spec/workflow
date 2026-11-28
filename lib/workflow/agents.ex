@@ -31,8 +31,14 @@ defmodule Workflow.Agents do
   def provider(step, %{"root" => root} = work) do
     case get_in(work, ["agents", to_string(step.actor)]) || work["agent"] do
       %{"provider" => "claude-code"} = named ->
-        # This machine's own `claude` login.
-        config = %{model: named["model"] || "claude-sonnet-5-5", workdir: root}
+        # This machine's own `claude` login. Alloy compacts the conversation; the
+        # CLI compacting its own copy too would leave the two apart.
+        config = %{
+          model: named["model"] || "claude-sonnet-5-5",
+          workdir: root,
+          env: [{"DISABLE_AUTO_COMPACT", "1"}]
+        }
+
         {:ok, {AlloyClaudeCode, config}}
 
       %{"provider" => "anthropic", "key" => "" <> key} = named ->
@@ -96,26 +102,28 @@ defmodule Workflow.Agents do
     result =
       alloy_run.(
         prompt,
-        messages: said,
-        # One agent-browser session per work, shared by its agents; and the
-        # plugin's env, as every recipe the loop runs has it, whatever the role.
-        context: %{
-          bash_env: Map.put(Map.new(Workflow.Plugin.env()), "AGENT_BROWSER_SESSION", id)
-        },
-        provider: provider,
-        tools: tools,
-        # A reviewer must decide; an agent that only may is not held to it. Nil,
-        # not false: Alloy holds a turn open for any tool it is given here.
-        until_tool: if(agent[:decides] == true, do: "decide"),
-        working_directory: root,
-        system_prompt: system,
-        max_retries: 0,
-        # Alloy's 25 ran out on a large codebase before the coder had changed a line.
-        max_turns: 200,
-        on_event: fn event ->
-          watch(id, step, event)
-          keep(conversation, who, event)
-        end
+        [
+          messages: said,
+          # One agent-browser session per work, shared by its agents; and the
+          # plugin's env, as every recipe the loop runs has it, whatever the role.
+          context: %{
+            bash_env: Map.put(Map.new(Workflow.Plugin.env()), "AGENT_BROWSER_SESSION", id)
+          },
+          provider: provider,
+          tools: tools,
+          # A reviewer must decide; an agent that only may is not held to it. Nil,
+          # not false: Alloy holds a turn open for any tool it is given here.
+          until_tool: if(agent[:decides] == true, do: "decide"),
+          working_directory: root,
+          system_prompt: system,
+          max_retries: 0,
+          # Alloy's 25 ran out on a large codebase before the coder had changed a line.
+          max_turns: 200,
+          on_event: fn event ->
+            watch(id, step, event)
+            keep(conversation, who, event)
+          end
+        ] ++ window(provider)
       )
 
     Workflow.Conversation.ended(conversation, who, length(said), result)
@@ -182,13 +190,16 @@ defmodule Workflow.Agents do
             "reply_to_support_thread, with conversation_id #{thread}."
 
         result =
-          alloy_run.(prompt,
-            provider: {module, resumed(config, ask["resume"])},
-            tools: [@tools.read, @tools.bash] ++ mcp,
-            working_directory: root,
-            system_prompt: @support,
-            max_retries: 0,
-            max_turns: 200
+          alloy_run.(
+            prompt,
+            [
+              provider: {module, resumed(config, ask["resume"])},
+              tools: [@tools.read, @tools.bash] ++ mcp,
+              working_directory: root,
+              system_prompt: @support,
+              max_retries: 0,
+              max_turns: 200
+            ] ++ window({module, config})
           )
 
         Logger.info("[Workflow support #{thread}] ended: #{elem(result, 0)}")
@@ -224,6 +235,17 @@ defmodule Workflow.Agents do
     do: {AlloyClaudeCode, Map.put(config, :provider_state, session)}
 
   def resume(provider, _session), do: provider
+
+  # The `claude` CLI holds 200k tokens, though Alloy takes the model's 1M window,
+  # and Alloy counts four bytes a token where a transcript runs nearer 2.4. So
+  # 80k as Alloy counts compacts at about 120k real. A miss is a refused prompt,
+  # which Alloy compacts and retries.
+  @claude_code_window 80_000
+
+  @doc "The run options that size the context Alloy compacts to, for this provider."
+  @spec window({module(), map()}) :: keyword()
+  def window({AlloyClaudeCode, _config}), do: [max_tokens: @claude_code_window]
+  def window(_provider), do: []
 
   @doc "The provider session a run ended in, nil when it has none."
   @spec session(map()) :: map() | nil

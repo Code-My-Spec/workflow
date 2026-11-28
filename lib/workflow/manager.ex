@@ -105,12 +105,6 @@ defmodule Workflow.Manager do
            Workflow.Skills.find(get_in(manager, ["agent", "skills"]), repo(manager)),
          skills = plugin ++ own do
       {kept, session} = remembered()
-
-      # A resumed session is sent only the new message, so bounding what is kept
-      # cannot shrink it: past the bound the session is dropped, and the turn
-      # starts fresh from the bounded conversation.
-      session = if byte_size(:erlang.term_to_binary(kept)) > bound(), do: nil, else: session
-
       conversation = Workflow.Conversation.path(manager["repo"], "manager")
       who = %{work: nil, step: nil, role: :manager}
       # Its own tools, and the plugin's MCP servers' beside them, each result capped.
@@ -119,40 +113,25 @@ defmodule Workflow.Manager do
       Workflow.Conversation.begun(conversation, who, system, tools)
       Workflow.Conversation.append(conversation, who, :prompt, text)
 
-      turn = fn session ->
-        provider = Agents.resume(provider, session)
+      # Resumed every turn: Alloy compacts what is kept, and only then does the
+      # session start over, from the compacted conversation.
+      provider = Agents.resume(provider, session)
 
-        # A resumed session sends only the new message, so the whole kept list is
-        # what its prefix is checked against; bounding it would send every turn fresh.
-        messages =
-          if match?({_module, %{provider_state: _}}, provider), do: kept, else: bounded(kept)
-
-        result =
-          run(text,
-            messages: messages,
+      result =
+        run(
+          text,
+          [
+            messages: kept,
             provider: provider,
             tools: tools,
             working_directory: home(),
             system_prompt: system,
             max_retries: 0,
             on_event: &Agents.keep(conversation, who, &1)
-          )
+          ] ++ Agents.window(provider)
+        )
 
-        {messages, result}
-      end
-
-      # A turn the context refused is run once more, fresh from the bounded
-      # conversation; a second refusal is reported, not retried.
-      {messages, result} =
-        case turn.(session) do
-          {_messages, {:error, said}} = refused ->
-            if too_long?(said), do: turn.(nil), else: refused
-
-          ran ->
-            ran
-        end
-
-      Workflow.Conversation.ended(conversation, who, length(messages), result)
+      Workflow.Conversation.ended(conversation, who, length(kept), result)
 
       case result do
         {:ok, said} ->
@@ -204,29 +183,6 @@ defmodule Workflow.Manager do
 
   defp remember(messages, session),
     do: File.write!(file(), :erlang.term_to_binary({messages, session}))
-
-  # What of the kept conversation fits the context, in bytes of its messages as
-  # kept: about 100k tokens at four bytes a token, under every model's context.
-  @bound 400_000
-
-  @doc "How large, in bytes as kept, the conversation a manager's turn starts from may be."
-  @spec bound() :: pos_integer()
-  def bound, do: @bound
-
-  # The kept conversation's newest turns that fit the bound: its oldest are
-  # dropped a whole turn at a time (up to the next prompt the manager was told),
-  # so no tool result is left without its call. One turn too large alone leaves none.
-  defp bounded(messages) do
-    if byte_size(:erlang.term_to_binary(messages)) <= @bound,
-      do: messages,
-      else: messages |> tl() |> Enum.drop_while(&(not prompt?(&1))) |> bounded()
-  end
-
-  defp prompt?(%{role: :user, content: "" <> _text}), do: true
-  defp prompt?(_message), do: false
-
-  defp too_long?(%{error: error}), do: inspect(error) =~ ~r/prompt is too long/i
-  defp too_long?(_said), do: false
 
   # The most, in bytes, of one tool result the manager is given.
   @result_cap 50_000
