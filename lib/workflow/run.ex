@@ -74,8 +74,14 @@ defmodule Workflow.Run do
   @spec cancel(map()) :: :ok
   def cancel(%{"repo" => repo, "kind" => kind, "id" => id} = work) do
     Checkout.cancel(repo, id)
-    # One still in the queue never starts.
+    # One still in the queue or waiting for a slot never starts, and one waiting
+    # is reported stopped here: unfly reports only a work in flight. Seen live: a
+    # restart re-took stopped works the server still had running.
     dequeue(id)
+
+    if File.rm(Path.join(slot_dir(), "#{id}.json")) == :ok,
+      do: Workflow.Report.queued(work, "stopped")
+
     end_turns(Checkout.root(repo, id))
     unfly(work, {"stopped", nil})
     close_browser(id)

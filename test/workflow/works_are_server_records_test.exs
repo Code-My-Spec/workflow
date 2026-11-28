@@ -396,8 +396,16 @@ defmodule Workflow.WorksAreServerRecordsTest do
       assert_received {:server, "report", %{"work_status" => "queued"}}
     end)
 
-    waiting = Path.wildcard(Path.join([Workflow.Run.works_dir(), "slot", "*.json"]))
-    assert length(waiting) == 1
+    assert [waiting] = Path.wildcard(Path.join([Workflow.Run.works_dir(), "slot", "*.json"]))
+    waiting_id = Path.basename(waiting, ".json")
+
+    # A waiting work stopped leaves the slot queue and is reported stopped.
+    capture_log(fn ->
+      Workflow.Run.cancel(%{"kind" => "issue", "id" => waiting_id, "repo" => main})
+    end)
+
+    refute File.exists?(waiting)
+    assert_received {:server, "report", %{"work" => ^waiting_id, "work_status" => "stopped"}}
 
     capture_log(fn ->
       for id <- ["i1", "i2"],

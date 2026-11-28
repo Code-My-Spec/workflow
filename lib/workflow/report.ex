@@ -85,10 +85,11 @@ defmodule Workflow.Report do
   Hands the report of `work`, queued with no slot free (`Workflow.Run.enqueue/1`),
   to the loop's line to the server, where there is one: status "queued", on no
   step yet, holding no slot, with `waiting_on` the ids of the works it is held on
-  (`Workflow.Run.waits_on/1`), and a note where one of those is stopped.
+  (`Workflow.Run.waits_on/1`), and a note where one of those is stopped. With
+  `status` "stopped", the same report for a work stopped before it started.
   """
-  @spec queued(map()) :: :ok
-  def queued(%{"id" => id} = work) do
+  @spec queued(map(), String.t()) :: :ok
+  def queued(%{"id" => id} = work, status \\ "queued") do
     if (lines = Workflow.Server.lines()) != [] do
       report = %{
         "project" => project(),
@@ -97,8 +98,8 @@ defmodule Workflow.Report do
         "title" => work["title"] || id,
         "steps" => [],
         "step" => nil,
-        "status" => "queued",
-        "work_status" => "queued",
+        "status" => status,
+        "work_status" => status,
         "parked" => false,
         "commit" => nil,
         "at" => Checkout.now(),
